@@ -7,6 +7,7 @@ import {
 import EditorCanvas from './components/EditorCanvas'
 import AppearanceSettings from './components/AppearanceSettings'
 import FillColorPresets from './components/FillColorPresets'
+import FillShadowSettings, { DEFAULT_FILL_SHADOW } from './components/FillShadowSettings'
 import IconButton from './components/IconButton'
 import InspectorSection from './components/InspectorSection'
 
@@ -67,6 +68,7 @@ export default function App() {
   const [fillLayers, setFillLayers] = useState([])
   const [fillLayerOpacities, setFillLayerOpacities] = useState({})
   const [fillLayerVisibility, setFillLayerVisibility] = useState({})
+  const [fillLayerShadows, setFillLayerShadows] = useState({})
   const [message, setMessage] = useState('正在识别线稿…')
   const [busy, setBusy] = useState(true)
   const [zoom, setZoom] = useState(100)
@@ -117,6 +119,7 @@ export default function App() {
         URL.revokeObjectURL(url)
       }
       setMessage('线稿已导入，正在识别围合区域')
+      setFillLayerShadows({})
     } catch (error) {
       console.error(error)
       setBusy(false)
@@ -129,6 +132,7 @@ export default function App() {
     if (!pdfDocument || nextPage < 1 || nextPage > pageCount) return
     setBusy(true)
     setPage(nextPage)
+    setFillLayerShadows({})
     setSource(await renderPdfPage(pdfDocument, nextPage))
   }
 
@@ -187,7 +191,7 @@ export default function App() {
       editor,
       settings: {
         fillColor, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview,
-        backgroundOpacity, fillLayerOpacities, fillLayerVisibility,
+        backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows,
       },
       background: background ? { name: backgroundName, data: imageToDataUrl(background) } : null,
     }
@@ -224,6 +228,7 @@ export default function App() {
       setBackgroundOpacity(settings.backgroundOpacity ?? 100)
       setFillLayerOpacities(settings.fillLayerOpacities || {})
       setFillLayerVisibility(settings.fillLayerVisibility || {})
+      setFillLayerShadows(settings.fillLayerShadows || {})
       await editorRef.current?.importProjectData(project.editor, {
         sensitivity: settings.sensitivity ?? 54,
         gapSize: settings.gapSize ?? 1,
@@ -242,12 +247,14 @@ export default function App() {
     if (!editorRef.current?.deleteLayer(color)) return
     setFillLayerOpacities((current) => { const next = { ...current }; delete next[color]; return next })
     setFillLayerVisibility((current) => { const next = { ...current }; delete next[color]; return next })
+    setFillLayerShadows((current) => { const next = { ...current }; delete next[color]; return next })
     setMessage(`已删除颜色图层 ${color}`)
   }
 
   const currentHistoryIndex = historyEntries.findIndex((entry) => entry.id === currentHistoryId)
   const canUndo = currentHistoryIndex > 0
   const canRedo = currentHistoryIndex >= 0 && currentHistoryIndex < historyEntries.length - 1
+  const activeShadowCount = fillLayers.filter((layer) => fillLayerShadows[layer.color]).length
 
   const undo = () => setMessage(editorRef.current?.undo() ? '已撤销上一次修改' : '暂无可撤销操作')
   const redo = () => setMessage(editorRef.current?.redo() ? '已重做下一次修改' : '暂无可重做操作')
@@ -346,6 +353,7 @@ export default function App() {
               backgroundOpacity={backgroundOpacity}
               fillLayerOpacities={fillLayerOpacities}
               fillLayerVisibility={fillLayerVisibility}
+              fillLayerShadows={fillLayerShadows}
               zoom={zoom}
               cropRequest={cropRequest}
               onRegions={setRegionCount}
@@ -440,6 +448,21 @@ export default function App() {
                 })}
               </div>
             ) : <p className="empty-layer-copy">使用油漆桶填色后，同色区域会自动归入一个图层。</p>}
+          </InspectorSection>
+          <InspectorSection title={`立体阴影${activeShadowCount ? ` (${activeShadowCount})` : ''}`}>
+            <FillShadowSettings
+              layers={fillLayers}
+              shadows={fillLayerShadows}
+              onAdd={(color) => {
+                setFillLayerShadows((current) => ({ ...current, [color]: { ...DEFAULT_FILL_SHADOW } }))
+                setMessage(`已为 ${color} 添加独立阴影`)
+              }}
+              onChange={(color, shadow) => setFillLayerShadows((current) => ({ ...current, [color]: shadow }))}
+              onRemove={(color) => {
+                setFillLayerShadows((current) => { const next = { ...current }; delete next[color]; return next })
+                setMessage(`已移除 ${color} 的阴影，填色保持不变`)
+              }}
+            />
           </InspectorSection>
           <InspectorSection title="画布设置">
             <div className="canvas-size-row">

@@ -11,7 +11,7 @@ const loadDataImage = (url) => new Promise((resolve, reject) => {
 const EditorCanvas = forwardRef(function EditorCanvas(
   {
     source, tool, fillColor, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
-    fillLayerOpacities, fillLayerVisibility, zoom, cropRequest, onRegions, onLayersChange, onMessage,
+    fillLayerOpacities, fillLayerVisibility, fillLayerShadows, zoom, cropRequest, onRegions, onLayersChange, onMessage,
     onBusy, onCanvasSize, onCropApplied, onCropCancel, onHistoryChange,
   },
   ref,
@@ -107,6 +107,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     Object.entries(fillLayerVisibility).forEach(([color, visible]) => {
       if (visible === false && !Object.hasOwn(fillLayerOpacities, color)) opacityByColor.set(Number.parseInt(color.slice(1), 16), 0)
     })
+    const shadowMasks = new Map(Object.entries(fillLayerShadows || {})
+      .filter(([color, shadow]) => shadow && fillLayerVisibility[color] !== false && (fillLayerOpacities[color] ?? 100) > 0)
+      .map(([color, shadow]) => [Number.parseInt(color.slice(1), 16), { shadow, image: new ImageData(canvas.width, canvas.height) }]))
     for (let offset = 0; offset < rawFill.length; offset += 4) {
       displayFill[offset] = rawFill[offset]
       displayFill[offset + 1] = rawFill[offset + 1]
@@ -114,10 +117,51 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       if (rawFill[offset + 3]) {
         const packedColor = (rawFill[offset] << 16) | (rawFill[offset + 1] << 8) | rawFill[offset + 2]
         displayFill[offset + 3] = Math.round(rawFill[offset + 3] * (opacityByColor.get(packedColor) ?? 1))
+        const shadowMask = shadowMasks.get(packedColor)
+        if (shadowMask) {
+          shadowMask.image.data[offset] = 255
+          shadowMask.image.data[offset + 1] = 255
+          shadowMask.image.data[offset + 2] = 255
+          shadowMask.image.data[offset + 3] = rawFill[offset + 3]
+        }
       } else {
         displayFill[offset + 3] = 0
       }
     }
+    if (!engine.shadowMaskCanvas || engine.shadowMaskCanvas.width !== canvas.width || engine.shadowMaskCanvas.height !== canvas.height) {
+      engine.shadowMaskCanvas = document.createElement('canvas')
+      engine.shadowLayerCanvas = document.createElement('canvas')
+      engine.shadowCompositeCanvas = document.createElement('canvas')
+      for (const shadowCanvas of [engine.shadowMaskCanvas, engine.shadowLayerCanvas, engine.shadowCompositeCanvas]) {
+        shadowCanvas.width = canvas.width
+        shadowCanvas.height = canvas.height
+      }
+    }
+    const maskContext = engine.shadowMaskCanvas.getContext('2d')
+    const shadowContext = engine.shadowLayerCanvas.getContext('2d')
+    const compositeContext = engine.shadowCompositeCanvas.getContext('2d')
+    compositeContext.clearRect(0, 0, canvas.width, canvas.height)
+    shadowMasks.forEach(({ shadow, image }, packedColor) => {
+      maskContext.clearRect(0, 0, canvas.width, canvas.height)
+      maskContext.putImageData(image, 0, 0)
+      shadowContext.clearRect(0, 0, canvas.width, canvas.height)
+      shadowContext.save()
+      shadowContext.shadowColor = shadow.color
+      shadowContext.shadowBlur = shadow.blur
+      shadowContext.shadowOffsetX = Math.round(shadow.distance * 0.7)
+      shadowContext.shadowOffsetY = shadow.distance
+      shadowContext.drawImage(engine.shadowMaskCanvas, 0, 0)
+      shadowContext.restore()
+      shadowContext.save()
+      shadowContext.globalCompositeOperation = 'destination-out'
+      shadowContext.drawImage(engine.shadowMaskCanvas, 0, 0)
+      shadowContext.restore()
+      compositeContext.save()
+      compositeContext.globalAlpha = shadow.opacity / 100 * (opacityByColor.get(packedColor) ?? 1)
+      compositeContext.drawImage(engine.shadowLayerCanvas, 0, 0)
+      compositeContext.restore()
+    })
+    ctx.drawImage(engine.shadowCompositeCanvas, 0, 0)
     fillContext.putImageData(engine.displayFill, 0, 0)
     ctx.drawImage(engine.fillCanvas, 0, 0)
     if (showHover && engine.hoverCanvas) ctx.drawImage(engine.hoverCanvas, 0, 0)
@@ -254,7 +298,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     })
   }, [cropRequest, tool])
 
-  useEffect(render, [background, backgroundOpacity, fillLayerOpacities, fillLayerVisibility, lineColor, lineOpacity])
+  useEffect(render, [background, backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows, lineColor, lineOpacity])
 
   useEffect(() => {
     lastHoverSeedRef.current = -1
@@ -356,6 +400,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
           naturalContext.drawImage(background, (engine.width - width) / 2, (engine.height - height) / 2, width, height)
           naturalContext.restore()
         }
+        if (engine.shadowCompositeCanvas) naturalContext.drawImage(engine.shadowCompositeCanvas, 0, 0)
         naturalContext.drawImage(engine.fillCanvas, 0, 0)
         naturalContext.drawImage(engine.lineCanvas, 0, 0)
       }
