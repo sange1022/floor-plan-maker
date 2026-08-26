@@ -189,6 +189,13 @@ button { color: inherit; }
 .shadow-color-row input { width: 25px; height: 23px; padding: 0; border: 0; background: none; }
 .shadow-color-row input::-webkit-color-swatch { border: 0; border-radius: 4px; }
 .shadow-color-row b { color: #5b6268; font-size: 9px; font-weight: 570; }
+.shadow-preset-select { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 9px; color: #5c646a; font-size: 10px; }
+.shadow-preset-select select { width: 126px; height: 29px; padding: 0 24px 0 7px; border: 1px solid var(--border); border-radius: 6px; outline: none; background: #fff; color: #50585f; font-size: 9px; cursor: pointer; }
+.shadow-preset-select select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.shadow-step-grid { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.shadow-step-grid label { min-width: 0; height: 48px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 7px; background: #fff; display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 8px; }
+.shadow-step-grid input { min-width: 0; width: 100%; border: 0; outline: none; color: #4e565d; background: transparent; font-size: 11px; font-weight: 650; }
+.shadow-step-grid input::-webkit-inner-spin-button { appearance: none; }
 .shadow-card .field-label { margin-top: 9px; font-size: 10px; }
 .fill-color-panel { display: flex; flex-direction: column; gap: 15px; }
 .current-color-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; }

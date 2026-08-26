@@ -8,6 +8,32 @@ const loadDataImage = (url) => new Promise((resolve, reject) => {
   image.src = url
 })
 
+// Clean-room Canvas equivalent of the plugin's progressive step distribution.
+const distributeByFactor = (range, slices, factor, addUp) => {
+  const count = Math.max(1, Math.round(slices || 1))
+  const scale = Math.max(1, Number(factor) || 1)
+  const parts = []
+  if (scale === 1) {
+    const part = range / count
+    for (let index = 1; index <= count; index += 1) parts.push(addUp ? index * part : part)
+    return parts
+  }
+  const startValue = range * Math.abs(scale - 1) / (Math.pow(scale, count) - 1)
+  let increasingFactor = scale
+  let previousPart = startValue
+  parts.push(Math.ceil(startValue))
+  for (let index = 1; index < count; index += 1) {
+    let nextPart = startValue * increasingFactor
+    if (addUp) {
+      nextPart += previousPart
+      previousPart = nextPart
+    }
+    parts.push(Math.ceil(nextPart))
+    increasingFactor *= scale
+  }
+  return parts
+}
+
 const EditorCanvas = forwardRef(function EditorCanvas(
   {
     source, tool, fillColor, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
@@ -142,15 +168,28 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     const compositeContext = engine.shadowCompositeCanvas.getContext('2d')
     compositeContext.clearRect(0, 0, canvas.width, canvas.height)
     shadowMasks.forEach(({ shadow, image }, packedColor) => {
+      const angle = (Number(shadow.angle ?? 0) * Math.PI) / 180
+      const steps = Math.max(1, Math.min(30, Number(shadow.steps ?? 20)))
+      const stepScale = Math.max(1, Number(shadow.stepScale ?? 1.3))
+      const distanceSteps = distributeByFactor(Number(shadow.distance ?? 40), steps, stepScale, true)
+      const blurSteps = distributeByFactor(Number(shadow.blur ?? 40), steps, stepScale, true)
       maskContext.clearRect(0, 0, canvas.width, canvas.height)
       maskContext.putImageData(image, 0, 0)
       shadowContext.clearRect(0, 0, canvas.width, canvas.height)
+      distanceSteps.forEach((distance, index) => {
+        shadowContext.save()
+        shadowContext.filter = blurSteps[index] > 0 ? `blur(${blurSteps[index]}px)` : 'none'
+        shadowContext.drawImage(
+          engine.shadowMaskCanvas,
+          Math.round(Math.cos(angle) * distance),
+          Math.round(Math.sin(angle) * distance),
+        )
+        shadowContext.restore()
+      })
       shadowContext.save()
-      shadowContext.shadowColor = shadow.color
-      shadowContext.shadowBlur = shadow.blur
-      shadowContext.shadowOffsetX = Math.round(shadow.distance * 0.7)
-      shadowContext.shadowOffsetY = shadow.distance
-      shadowContext.drawImage(engine.shadowMaskCanvas, 0, 0)
+      shadowContext.globalCompositeOperation = 'source-in'
+      shadowContext.fillStyle = shadow.color || '#000000'
+      shadowContext.fillRect(0, 0, canvas.width, canvas.height)
       shadowContext.restore()
       shadowContext.save()
       shadowContext.globalCompositeOperation = 'destination-out'
