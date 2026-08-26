@@ -99,6 +99,16 @@ button { color: inherit; }
 .appearance-clear { position: absolute; top: 8px; right: 7px; height: 22px; padding: 0 5px; border: 0; border-radius: 5px; background: transparent; display: flex; align-items: center; gap: 2px; color: #9b6257; font-size: 8px; cursor: pointer; }
 .appearance-clear:hover { background: #fff0ed; }
 .appearance-note { margin: 9px 0 0; color: var(--muted); font-size: 8px; line-height: 1.35; }
+.background-presets { grid-column: 1 / -1; min-width: 0; padding-top: 3px; }
+.background-presets-heading { height: 24px; display: flex; align-items: center; justify-content: space-between; }
+.background-presets-heading strong { color: #555d65; font-size: 10px; font-weight: 650; }
+.background-presets-heading span { color: var(--muted); font-size: 8px; }
+.background-preset-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.background-preset-grid button { min-width: 0; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: #fff; cursor: pointer; }
+.background-preset-grid button:hover { border-color: #c0c8ce; transform: translateY(-1px); }
+.background-preset-grid button.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.background-preset-preview { display: block; width: 100%; aspect-ratio: 1; border: 1px solid rgba(32,35,38,.1); border-radius: 4px; background-size: cover; background-position: center; }
+.background-preset-grid small { display: block; margin-top: 4px; overflow: hidden; color: #626a71; font-size: 7px; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
 .clear-button { color: #50575e; margin-top: 9px; }
 .empty-layer-copy { margin: 2px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .canvas-size-row { height: 34px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; }

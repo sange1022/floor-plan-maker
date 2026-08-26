@@ -140,6 +140,29 @@ export default function App() {
     event.target.value = ''
   }
 
+  const applyBackgroundPreset = async (preset) => {
+    try {
+      let image
+      if (preset.color) {
+        const canvas = document.createElement('canvas')
+        canvas.width = 8
+        canvas.height = 8
+        const context = canvas.getContext('2d')
+        context.fillStyle = preset.color
+        context.fillRect(0, 0, canvas.width, canvas.height)
+        image = await loadImage(canvas.toDataURL('image/png'))
+      } else {
+        image = await loadImage(preset.src)
+      }
+      setBackground(image)
+      setBackgroundName(preset.name)
+      setMessage(`背景已切换为「${preset.name}」`)
+    } catch (error) {
+      console.error(error)
+      setMessage('预设背景加载失败，请稍后重试')
+    }
+  }
+
   const exportArtwork = () => {
     const url = editorRef.current?.exportPng({ scale: exportScale, transparent: exportTransparent })
     if (!url) return
@@ -332,6 +355,7 @@ export default function App() {
               lineColor={lineColor}
               lineOpacity={lineOpacity}
               onBackgroundImport={importBackground}
+              onBackgroundPreset={applyBackgroundPreset}
               onBackgroundOpacityChange={setBackgroundOpacity}
               onClearBackground={() => { setBackground(null); setBackgroundName(''); setMessage('背景已清除') }}
               onLineColorChange={setLineColor}
