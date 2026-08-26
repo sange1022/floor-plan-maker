@@ -245,7 +245,12 @@ export default function App() {
     setMessage(`已删除颜色图层 ${color}`)
   }
 
-  const undo = () => setMessage(editorRef.current?.undo() ? '已撤销上一次填色' : '暂无可撤销操作')
+  const currentHistoryIndex = historyEntries.findIndex((entry) => entry.id === currentHistoryId)
+  const canUndo = currentHistoryIndex > 0
+  const canRedo = currentHistoryIndex >= 0 && currentHistoryIndex < historyEntries.length - 1
+
+  const undo = () => setMessage(editorRef.current?.undo() ? '已撤销上一次修改' : '暂无可撤销操作')
+  const redo = () => setMessage(editorRef.current?.redo() ? '已重做下一次修改' : '暂无可重做操作')
 
   const tools = [
     { id: 'select', label: '选择', icon: MousePointer2 },
@@ -274,10 +279,7 @@ export default function App() {
   const centerCanvas = () => {
     const workspace = workspaceRef.current
     if (!workspace || !canvasSize.width || !canvasSize.height) return
-    const availableWidth = Math.max(280, workspace.clientWidth - 84)
-    const availableHeight = Math.max(260, workspace.clientHeight - 84)
-    const baseHeight = 700 * canvasSize.height / canvasSize.width
-    const nextZoom = Math.max(40, Math.min(100, Math.floor(Math.min(availableWidth / 700, availableHeight / baseHeight) * 100)))
+    const nextZoom = 200
     setZoom(nextZoom)
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
       workspace.scrollTo({
@@ -319,10 +321,18 @@ export default function App() {
           </nav>
         </aside>
 
-        <section className="workspace" ref={workspaceRef}>
-          {message ? <div className={`toast ${busy ? 'busy' : ''}`}><ScanLine size={17} />{message}</div> : null}
-          {source ? (
-            <EditorCanvas
+        <section className="preview-pane" aria-label="画布预览区">
+          <div className="canvas-floating-controls">
+            <div className="canvas-history-controls" aria-label="历史操作">
+              <button type="button" onClick={undo} disabled={!canUndo} aria-label="撤销"><Undo2 size={17} /></button>
+              <button type="button" onClick={redo} disabled={!canRedo} aria-label="重做"><Redo2 size={17} /></button>
+            </div>
+            <button className="canvas-center-control" type="button" onClick={centerCanvas} aria-label="一键居中并放大到200%"><LocateFixed size={16} /><span>一键居中 · 200%</span></button>
+          </div>
+          <div className="workspace" ref={workspaceRef}>
+            {message ? <div className={`toast ${busy ? 'busy' : ''}`}><ScanLine size={17} />{message}</div> : null}
+            {source ? (
+              <EditorCanvas
               ref={editorRef}
               source={source}
               tool={tool}
@@ -346,8 +356,9 @@ export default function App() {
               onCropApplied={() => { setTool('bucket'); setMessage('裁剪完成，画布与识别区域已更新') }}
               onCropCancel={() => setTool('bucket')}
               onHistoryChange={(entries, activeId) => { setHistoryEntries(entries); setCurrentHistoryId(activeId) }}
-            />
-          ) : null}
+              />
+            ) : null}
+          </div>
         </section>
 
         <aside className="inspector">
@@ -449,7 +460,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <button className="full-button center-canvas-button" type="button" onClick={centerCanvas}><LocateFixed size={16} />一键居中画布</button>
           </InspectorSection>
           <InspectorSection title={`历史记录${historyEntries.length ? ` (${historyEntries.length})` : ''}`}>
             {historyEntries.length ? (
@@ -494,8 +504,7 @@ export default function App() {
 
       <footer className="statusbar">
         <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span></div>
-        <div className="history-controls"><button type="button" onClick={undo} aria-label="撤销"><Undo2 size={19} /></button><button type="button" disabled aria-label="重做"><Redo2 size={19} /></button></div>
-        <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))} aria-label="放大画布"><ZoomIn size={16} /></button><button type="button" onClick={centerCanvas} aria-label="一键居中画布" title="一键居中画布"><LocateFixed size={17} /></button></div>
+        <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))} aria-label="放大画布"><ZoomIn size={16} /></button></div>
       </footer>
     </main>
   )

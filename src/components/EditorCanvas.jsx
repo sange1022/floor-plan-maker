@@ -262,21 +262,50 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillColor, hoverPreview, tool])
 
+  const restoreTimelineIndex = (index) => {
+    const timeline = timelineRef.current
+    const snapshot = timeline.entries[index]
+    if (!snapshot) return false
+    const fillCanvas = document.createElement('canvas')
+    const lineCanvas = document.createElement('canvas')
+    const hoverCanvas = document.createElement('canvas')
+    fillCanvas.width = lineCanvas.width = hoverCanvas.width = snapshot.width
+    fillCanvas.height = lineCanvas.height = hoverCanvas.height = snapshot.height
+    sourceRef.current = snapshot.sourceCanvas
+    engineRef.current = {
+      mask: snapshot.mask,
+      lineAlpha: snapshot.lineAlpha,
+      fill: new ImageData(new Uint8ClampedArray(snapshot.fillData), snapshot.width, snapshot.height),
+      displayFill: new ImageData(snapshot.width, snapshot.height),
+      width: snapshot.width,
+      height: snapshot.height,
+      history: [],
+      fillCanvas,
+      lineCanvas,
+      hoverCanvas,
+      hoverBounds: null,
+      layerCounts: new Map(snapshot.layerCounts),
+      layerOrder: [...snapshot.layerOrder],
+      regions: snapshot.regions,
+    }
+    canvasRef.current.width = snapshot.width
+    canvasRef.current.height = snapshot.height
+    timeline.index = index
+    onRegions(snapshot.regions)
+    onCanvasSize({ width: snapshot.width, height: snapshot.height })
+    emitLayers()
+    render()
+    emitHistory()
+    return true
+  }
+
   useImperativeHandle(ref, () => ({
     recognize: rebuild,
     undo() {
-      const engine = engineRef.current
-      const action = engine.history.pop()
-      if (!action) return false
-      action.pixels.forEach((pixel, index) => {
-        engine.fill.data.set(action.before.subarray(index * 4, index * 4 + 4), pixel * 4)
-      })
-      adjustLayerCount(action.newColor, -1)
-      adjustLayerCount(action.previousColor, 1)
-      emitLayers()
-      render()
-      recordHistory('撤销上一次填色')
-      return true
+      return restoreTimelineIndex(timelineRef.current.index - 1)
+    },
+    redo() {
+      return restoreTimelineIndex(timelineRef.current.index + 1)
     },
     clearFills() {
       const engine = engineRef.current
@@ -401,39 +430,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     restoreHistory(id) {
       const timeline = timelineRef.current
       const index = timeline.entries.findIndex((entry) => entry.id === id)
-      if (index < 0) return false
-      const snapshot = timeline.entries[index]
-      const fillCanvas = document.createElement('canvas')
-      const lineCanvas = document.createElement('canvas')
-      const hoverCanvas = document.createElement('canvas')
-      fillCanvas.width = lineCanvas.width = hoverCanvas.width = snapshot.width
-      fillCanvas.height = lineCanvas.height = hoverCanvas.height = snapshot.height
-      sourceRef.current = snapshot.sourceCanvas
-      engineRef.current = {
-        mask: snapshot.mask,
-        lineAlpha: snapshot.lineAlpha,
-        fill: new ImageData(new Uint8ClampedArray(snapshot.fillData), snapshot.width, snapshot.height),
-        displayFill: new ImageData(snapshot.width, snapshot.height),
-        width: snapshot.width,
-        height: snapshot.height,
-        history: [],
-        fillCanvas,
-        lineCanvas,
-        hoverCanvas,
-        hoverBounds: null,
-        layerCounts: new Map(snapshot.layerCounts),
-        layerOrder: [...snapshot.layerOrder],
-        regions: snapshot.regions,
-      }
-      canvasRef.current.width = snapshot.width
-      canvasRef.current.height = snapshot.height
-      timeline.index = index
-      onRegions(snapshot.regions)
-      onCanvasSize({ width: snapshot.width, height: snapshot.height })
-      emitLayers()
-      render()
-      emitHistory()
-      return true
+      return restoreTimelineIndex(index)
     },
   }))
 
