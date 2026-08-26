@@ -2,17 +2,17 @@ import { Box, Plus, Trash2 } from 'lucide-react'
 
 export const DEFAULT_FILL_SHADOW = {
   color: '#3C302C',
-  opacity: 36,
-  angle: -131,
-  distance: 300,
-  steps: 30,
+  opacity: 44,
+  angle: 33,
+  distance: 35,
+  steps: 20,
   stepScale: 1.3,
-  blur: 200,
+  blur: 4,
 }
 
 const SHADOW_PRESETS = {
   soft: { angle: 45, distance: 22, steps: 14, stepScale: 1.2, blur: 24, opacity: 26 },
-  long: { angle: 45, distance: 54, steps: 20, stepScale: 1.3, blur: 38, opacity: 38 },
+  long: { angle: 33, distance: 35, steps: 20, stepScale: 1.3, blur: 4, opacity: 44 },
   solid: { angle: 30, distance: 34, steps: 24, stepScale: 1.05, blur: 3, opacity: 46 },
   plugin: { angle: -131, distance: 300, steps: 30, stepScale: 1.3, blur: 200, opacity: 36 },
 }
@@ -35,6 +35,9 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
           )
         }
         const shadow = { ...DEFAULT_FILL_SHADOW, ...storedShadow }
+        const selectedPreset = Object.entries(SHADOW_PRESETS).find(([, preset]) =>
+          Object.entries(preset).every(([key, value]) => shadow[key] === value),
+        )?.[0] || ''
 
         const update = (key, value) => onChange(layer.color, { ...shadow, [key]: value })
         return (
@@ -53,14 +56,13 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
               <span>快速预设</span>
               <select
                 aria-label={`颜色图层 ${layer.color} 的阴影预设`}
-                defaultValue=""
+                value={selectedPreset}
                 onChange={(event) => {
                   const preset = SHADOW_PRESETS[event.target.value]
                   if (preset) onChange(layer.color, { ...shadow, ...preset })
-                  event.target.value = ''
                 }}
               >
-                <option value="" disabled>选择效果</option>
+                <option value="" disabled>自定义参数</option>
                 <option value="plugin">插件默认</option>
                 <option value="soft">柔和立体</option>
                 <option value="long">长投影</option>
