@@ -7,6 +7,7 @@ const BACKGROUND_PRESETS = [
   { id: 'ivory', name: '象牙宣纸', src: `${import.meta.env.BASE_URL}assets/backgrounds/xuan-ivory.jpg` },
   { id: 'mist-blue', name: '烟青纤维', src: `${import.meta.env.BASE_URL}assets/backgrounds/xuan-mist-blue.jpg` },
   { id: 'tea', name: '浅茶旧纸', src: `${import.meta.env.BASE_URL}assets/backgrounds/xuan-tea.jpg` },
+  { id: 'warm-gray', name: '暖灰渐影', src: `${import.meta.env.BASE_URL}assets/backgrounds/warm-gray-gradient.jpg` },
 ]
 
 export default function AppearanceSettings({
