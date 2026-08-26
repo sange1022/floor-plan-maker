@@ -46,6 +46,10 @@ const imageToDataUrl = (image) => {
   return canvas.toDataURL('image/png')
 }
 
+const MIN_ZOOM = 40
+const MAX_ZOOM = 400
+const ZOOM_STEP = 10
+
 export default function App() {
   const [source, setSource] = useState(null)
   const [documentName, setDocumentName] = useState('花卉线稿_01.png')
@@ -491,7 +495,7 @@ export default function App() {
       <footer className="statusbar">
         <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span></div>
         <div className="history-controls"><button type="button" onClick={undo} aria-label="撤销"><Undo2 size={19} /></button><button type="button" disabled aria-label="重做"><Redo2 size={19} /></button></div>
-        <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(40, value - 10))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(140, value + 10))} aria-label="放大画布"><ZoomIn size={16} /></button><button type="button" onClick={centerCanvas} aria-label="一键居中画布" title="一键居中画布"><LocateFixed size={17} /></button></div>
+        <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))} aria-label="放大画布"><ZoomIn size={16} /></button><button type="button" onClick={centerCanvas} aria-label="一键居中画布" title="一键居中画布"><LocateFixed size={17} /></button></div>
       </footer>
     </main>
   )
