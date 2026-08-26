@@ -3,18 +3,18 @@ import { Box, Plus, Trash2 } from 'lucide-react'
 export const DEFAULT_FILL_SHADOW = {
   color: '#3C302C',
   opacity: 36,
-  angle: 0,
-  distance: 40,
-  steps: 20,
+  angle: -131,
+  distance: 300,
+  steps: 30,
   stepScale: 1.3,
-  blur: 40,
+  blur: 200,
 }
 
 const SHADOW_PRESETS = {
   soft: { angle: 45, distance: 22, steps: 14, stepScale: 1.2, blur: 24, opacity: 26 },
   long: { angle: 45, distance: 54, steps: 20, stepScale: 1.3, blur: 38, opacity: 38 },
   solid: { angle: 30, distance: 34, steps: 24, stepScale: 1.05, blur: 3, opacity: 46 },
-  plugin: { angle: 0, distance: 40, steps: 20, stepScale: 1.3, blur: 40, opacity: 36 },
+  plugin: { angle: -131, distance: 300, steps: 30, stepScale: 1.3, blur: 200, opacity: 36 },
 }
 
 export default function FillShadowSettings({ layers, shadows, onAdd, onChange, onRemove }) {
@@ -70,7 +70,7 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
             <label className="field-label" htmlFor={`shadow-angle-${layer.color.slice(1)}`}>投影角度 <output>{shadow.angle}°</output></label>
             <input id={`shadow-angle-${layer.color.slice(1)}`} className="slider" type="range" min="-180" max="180" value={shadow.angle} onChange={(event) => update('angle', Number(event.target.value))} />
             <label className="field-label" htmlFor={`shadow-distance-${layer.color.slice(1)}`}>总距离 <output>{shadow.distance}px</output></label>
-            <input id={`shadow-distance-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="120" value={shadow.distance} onChange={(event) => update('distance', Number(event.target.value))} />
+            <input id={`shadow-distance-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="500" value={shadow.distance} onChange={(event) => update('distance', Number(event.target.value))} />
             <div className="shadow-step-grid">
               <label>
                 <span>Steps</span>
@@ -82,7 +82,7 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
               </label>
             </div>
             <label className="field-label" htmlFor={`shadow-blur-${layer.color.slice(1)}`}>边缘柔化 <output>{shadow.blur}px</output></label>
-            <input id={`shadow-blur-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="100" value={shadow.blur} onChange={(event) => update('blur', Number(event.target.value))} />
+            <input id={`shadow-blur-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="300" value={shadow.blur} onChange={(event) => update('blur', Number(event.target.value))} />
             <label className="field-label" htmlFor={`shadow-opacity-${layer.color.slice(1)}`}>阴影透明度 <output>{shadow.opacity}%</output></label>
             <input id={`shadow-opacity-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="80" value={shadow.opacity} onChange={(event) => update('opacity', Number(event.target.value))} />
           </div>

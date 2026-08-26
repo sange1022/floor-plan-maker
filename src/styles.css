@@ -1,5 +1,6 @@
 :root {
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Hiragino Sans GB", system-ui, "Microsoft YaHei", sans-serif;
+  font-optical-sizing: auto;
   color: #202326;
   background: #f3f5f7;
   font-synthesis: none;
@@ -11,8 +12,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; overflow: hidden; }
-button, input { font: inherit; }
+body { margin: 0; min-width: 320px; min-height: 100vh; overflow: hidden; font-family: inherit; }
+button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 
 .app-shell { height: 100vh; min-height: 0; display: grid; grid-template-rows: 64px minmax(0, 1fr) 48px; background: #fff; overflow: hidden; }

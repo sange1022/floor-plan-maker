@@ -168,11 +168,11 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     const compositeContext = engine.shadowCompositeCanvas.getContext('2d')
     compositeContext.clearRect(0, 0, canvas.width, canvas.height)
     shadowMasks.forEach(({ shadow, image }, packedColor) => {
-      const angle = (Number(shadow.angle ?? 0) * Math.PI) / 180
-      const steps = Math.max(1, Math.min(30, Number(shadow.steps ?? 20)))
+      const angle = (Number(shadow.angle ?? -131) * Math.PI) / 180
+      const steps = Math.max(1, Math.min(30, Number(shadow.steps ?? 30)))
       const stepScale = Math.max(1, Number(shadow.stepScale ?? 1.3))
-      const distanceSteps = distributeByFactor(Number(shadow.distance ?? 40), steps, stepScale, true)
-      const blurSteps = distributeByFactor(Number(shadow.blur ?? 40), steps, stepScale, true)
+      const distanceSteps = distributeByFactor(Number(shadow.distance ?? 300), steps, stepScale, true)
+      const blurSteps = distributeByFactor(Number(shadow.blur ?? 200), steps, stepScale, true)
       maskContext.clearRect(0, 0, canvas.width, canvas.height)
       maskContext.putImageData(image, 0, 0)
       shadowContext.clearRect(0, 0, canvas.width, canvas.height)
