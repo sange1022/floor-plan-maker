@@ -7,9 +7,11 @@ import {
 import EditorCanvas from './components/EditorCanvas'
 import AppearanceSettings from './components/AppearanceSettings'
 import FillColorPresets from './components/FillColorPresets'
+import FillColorInput from './components/FillColorInput'
 import FillShadowSettings, { DEFAULT_FILL_SHADOW } from './components/FillShadowSettings'
 import IconButton from './components/IconButton'
 import InspectorSection from './components/InspectorSection'
+import { normalizeHex } from './lib/canvasEngine'
 
 const loadImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -47,7 +49,7 @@ const imageToDataUrl = (image) => {
   return canvas.toDataURL('image/png')
 }
 
-const MIN_ZOOM = 40
+const MIN_ZOOM = 10
 const MAX_ZOOM = 400
 const ZOOM_STEP = 10
 
@@ -87,6 +89,18 @@ export default function App() {
   const editorRef = useRef(null)
   const workspaceRef = useRef(null)
 
+  const chooseFillColor = (color) => {
+    setFillColor(color)
+    setTool('bucket')
+    setCropRequest(null)
+  }
+  const selectedLayerInvisible = fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
+  const revealSelectedLayer = () => {
+    setFillLayerVisibility((current) => ({ ...current, [fillColor]: true }))
+    if ((fillLayerOpacities[fillColor] ?? 100) === 0) setFillLayerOpacities((current) => ({ ...current, [fillColor]: 100 }))
+    setMessage('当前颜色图层已显示，可以继续填色')
+  }
+
   useEffect(() => {
     loadImage(`${import.meta.env.BASE_URL}assets/sample-line-art.png`).then(setSource)
   }, [])
@@ -120,6 +134,9 @@ export default function App() {
       }
       setMessage('线稿已导入，正在识别围合区域')
       setFillLayerShadows({})
+      setFillLayerOpacities({})
+      setFillLayerVisibility({})
+      setTool('bucket')
     } catch (error) {
       console.error(error)
       setBusy(false)
@@ -133,6 +150,8 @@ export default function App() {
     setBusy(true)
     setPage(nextPage)
     setFillLayerShadows({})
+    setFillLayerOpacities({})
+    setFillLayerVisibility({})
     setSource(await renderPdfPage(pdfDocument, nextPage))
   }
 
@@ -217,7 +236,7 @@ export default function App() {
       setPdfDocument(null)
       setPage(1)
       setPageCount(1)
-      setFillColor(settings.fillColor || '#E8754F')
+      setFillColor(normalizeHex(settings.fillColor) || '#E8754F')
       setLineColor(settings.lineColor || '#1A1A1A')
       setLineOpacity(settings.lineOpacity ?? 100)
       setSensitivity(settings.sensitivity ?? 54)
@@ -298,6 +317,18 @@ export default function App() {
     setMessage(`画布已居中 · ${nextZoom}%`)
   }
 
+  const fitCanvas = () => {
+    const workspace = workspaceRef.current
+    if (!workspace || !canvasSize.width || !canvasSize.height) return
+    const styles = getComputedStyle(workspace)
+    const availableWidth = workspace.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight)
+    const availableHeight = workspace.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom)
+    const scale = Math.min(availableWidth / 700, availableHeight / (700 * canvasSize.height / canvasSize.width))
+    setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.floor(scale * 100))))
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => workspace.scrollTo({ left: 0, top: 0 })))
+    setMessage('已完整显示画布，可继续放大查看细节')
+  }
+
   const restoreHistory = (id) => {
     if (!editorRef.current?.restoreHistory(id)) return
     setTool('bucket')
@@ -324,7 +355,7 @@ export default function App() {
         <aside className="left-panel">
           <nav className="tool-rail" aria-label="绘图工具">
             {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => setTool(item.id)} />)}
-            <FillColorPresets color={fillColor} onChange={setFillColor} />
+            <FillColorPresets color={fillColor} onChange={chooseFillColor} />
           </nav>
         </aside>
 
@@ -334,16 +365,20 @@ export default function App() {
               <button type="button" onClick={undo} disabled={!canUndo} aria-label="撤销"><Undo2 size={17} /></button>
               <button type="button" onClick={redo} disabled={!canRedo} aria-label="重做"><Redo2 size={17} /></button>
             </div>
-            <button className="canvas-center-control" type="button" onClick={centerCanvas} aria-label="一键居中并放大到200%"><LocateFixed size={16} /><span>一键居中 · 200%</span></button>
+            <div className="canvas-view-controls">
+              <button className="canvas-fit-control" type="button" onClick={fitCanvas} aria-label="完整显示画布"><ScanLine size={16} /><span>完整显示</span></button>
+              <button className="canvas-center-control" type="button" onClick={centerCanvas} aria-label="一键居中并放大到200%"><LocateFixed size={16} /><span>一键居中 · 200%</span></button>
+            </div>
           </div>
           <div className="workspace" ref={workspaceRef}>
-            {message ? <div className={`toast ${busy ? 'busy' : ''}`}><ScanLine size={17} />{message}</div> : null}
+            {message ? <div className={`toast ${busy ? 'busy' : ''}`} role="status"><ScanLine size={17} />{message}</div> : null}
             {source ? (
               <EditorCanvas
               ref={editorRef}
               source={source}
               tool={tool}
               fillColor={fillColor}
+              busy={busy}
               lineColor={lineColor}
               lineOpacity={lineOpacity}
               sensitivity={sensitivity}
@@ -386,13 +421,11 @@ export default function App() {
             />
           </InspectorSection>
           <InspectorSection title="填充颜色">
-            <div className="current-color-row">
-              <span>当前颜色</span>
-              <div className="current-color-control compact">
-                <input type="color" value={fillColor} onChange={(event) => setFillColor(event.target.value.toUpperCase())} aria-label="自定义填充颜色" />
-                <input value={fillColor} onChange={(event) => /^#[0-9A-Fa-f]{0,6}$/.test(event.target.value) && setFillColor(event.target.value.toUpperCase())} aria-label="填充颜色十六进制值" />
-              </div>
-            </div>
+            <FillColorInput color={fillColor} onChange={chooseFillColor} />
+            {selectedLayerInvisible ? <div className="fill-visibility-notice" role="status">
+              <span>当前颜色图层已隐藏或透明度为 0%，填色后也不可见。</span>
+              <button type="button" onClick={revealSelectedLayer}>显示当前颜色图层</button>
+            </div> : null}
           </InspectorSection>
           <InspectorSection title={`填色图层${fillLayers.length ? ` (${fillLayers.length})` : ''}`}>
             {fillLayers.length ? (
@@ -404,7 +437,7 @@ export default function App() {
                   return (
                     <div className="fill-layer" key={layer.color}>
                       <div className="fill-layer-heading">
-                        <span className="layer-swatch" style={{ background: layer.color }} />
+                        <button type="button" className="layer-swatch" style={{ background: layer.color }} aria-label={`使用图层颜色 ${layer.color} 填色`} onClick={() => chooseFillColor(layer.color)} />
                         <strong>{layer.color}</strong>
                         <span>{layer.regionCount} 个区域</span>
                         <button
@@ -512,10 +545,11 @@ export default function App() {
           </InspectorSection>
           <InspectorSection title="识别区域" defaultOpen={false}>
             <div className="recognition-result"><ScanLine size={19} /><span>已识别 <b>{regionCount}</b> 个围合区域</span></div>
-            <label className="field-label" htmlFor="sensitivity">识别灵敏度 <output>{sensitivity}%</output></label>
+            <label className="field-label" htmlFor="sensitivity">线条筛选强度 <output>{sensitivity}%</output></label>
             <input id="sensitivity" className="slider" type="range" min="20" max="90" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
             <label className="field-label" htmlFor="gap-size">防漏小缺口 <output>{gapSize === 0 ? '关闭' : `${gapSize}px`}</output></label>
-            <input id="gap-size" className="slider" type="range" min="0" max="4" value={gapSize} onChange={(event) => setGapSize(Number(event.target.value))} />
+            <input id="gap-size" className="slider" type="range" min="0" max="12" value={gapSize} onChange={(event) => setGapSize(Number(event.target.value))} />
+            <p className="canvas-help">浅灰细线漏色时降低筛选强度；线条有断口时增大防漏值。调整后点击重新识别，已有填色会保留，也可撤销。</p>
             <label className="toggle-row compact"><span><strong>区域悬停预览</strong><small>填色前显示作用范围</small></span><input type="checkbox" checked={hoverPreview} onChange={(event) => setHoverPreview(event.target.checked)} /></label>
             <button className="full-button" type="button" onClick={() => editorRef.current?.recognize()} disabled={busy}><RotateCcw size={16} />{busy ? '识别中…' : '重新识别'}</button>
           </InspectorSection>
@@ -526,7 +560,7 @@ export default function App() {
       </div>
 
       <footer className="statusbar">
-        <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span></div>
+        <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span><span className="active-tool-status">{busy ? '处理中…' : tool === 'bucket' ? `油漆桶 · ${fillColor}` : tool === 'crop' ? '裁剪 · 应用后生效' : '选择 · 选色开始填充'}</span></div>
         <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))} aria-label="放大画布"><ZoomIn size={16} /></button></div>
       </footer>
     </main>

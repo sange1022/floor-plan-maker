@@ -1,5 +1,11 @@
+export const normalizeHex = (hex) => {
+  const value = String(hex ?? '').trim().replace(/^#/, '')
+  if (!/^(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) return null
+  return `#${(value.length === 3 ? value.split('').map((c) => c + c).join('') : value).toUpperCase()}`
+}
+
 export const hexToRgb = (hex) => {
-  const value = hex.replace('#', '')
+  const value = (normalizeHex(hex) || '#000000').slice(1)
   const normalized = value.length === 3 ? value.split('').map((c) => c + c).join('') : value
   const numeric = Number.parseInt(normalized, 16)
   return { r: (numeric >> 16) & 255, g: (numeric >> 8) & 255, b: numeric & 255 }
@@ -42,7 +48,9 @@ export function createLineMask(sourceCanvas, sensitivity = 54, gapSize = 0) {
 
   for (let index = 0; index < count; index += 1) {
     const offset = index * 4
-    const gray = image.data[offset] * 0.299 + image.data[offset + 1] * 0.587 + image.data[offset + 2] * 0.114
+    // Transparent PNG pixels represent paper, even when their stored RGB is black.
+    const alpha = image.data[offset + 3] / 255
+    const gray = (image.data[offset] * 0.299 + image.data[offset + 1] * 0.587 + image.data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
     // Keep the visual line layer independent from the binary recognition mask.
     // This preserves the PDF renderer's antialiased edge pixels instead of
     // displaying the harder, lower-fidelity region-detection threshold.
@@ -58,16 +66,17 @@ export function createLineMask(sourceCanvas, sensitivity = 54, gapSize = 0) {
   return { mask, lineAlpha, width: sourceCanvas.width, height: sourceCanvas.height, bridgedPixels }
 }
 
-export function findClosedRegion({ x, y, mask, width, height, maxPixels = 300_000 }) {
+export function findClosedRegion({ x, y, mask, width, height }) {
+  if (!mask || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= width || y >= height) {
+    return { status: 'invalid', pixels: [] }
+  }
   const seed = y * width + x
   if (mask[seed]) return { status: 'line', pixels: [] }
   const total = width * height
   const visited = new Uint8Array(total)
-  const queue = new Int32Array(Math.min(total, maxPixels + 1))
-  const pixels = []
+  const queue = new Int32Array(total)
   let head = 0
   let tail = 0
-  let touchesEdge = false
   queue[tail++] = seed
   visited[seed] = 1
 
@@ -79,25 +88,23 @@ export function findClosedRegion({ x, y, mask, width, height, maxPixels = 300_00
   }
   while (head < tail) {
     const current = queue[head++]
-    pixels.push(current)
-    if (pixels.length >= maxPixels) return { status: 'large', pixels: [] }
     const px = current % width
     const py = (current / width) | 0
-    if (px === 0 || py === 0 || px === width - 1 || py === height - 1) touchesEdge = true
+    if (px === 0 || py === 0 || px === width - 1 || py === height - 1) return { status: 'open', pixels: [] }
     if (px > 0) visit(current - 1)
     if (px + 1 < width) visit(current + 1)
     if (py > 0) visit(current - width)
     if (py + 1 < height) visit(current + width)
   }
-  return touchesEdge ? { status: 'open', pixels: [] } : { status: 'closed', pixels }
+  return { status: 'closed', pixels: queue.subarray(0, tail) }
 }
 
-export function countClosedRegions(mask, width, height) {
+export function analyzeRegions(mask, width, height, fillData) {
   const total = width * height
   const visited = new Uint8Array(total)
   const queue = new Int32Array(total)
   let regions = 0
-  const minimumArea = Math.max(32, Math.round(total * 0.00003))
+  const layerCounts = new Map()
 
   for (let seed = 0; seed < total; seed += 1) {
     if (mask[seed] || visited[seed]) continue
@@ -105,6 +112,7 @@ export function countClosedRegions(mask, width, height) {
     let tail = 0
     let area = 0
     let touchesEdge = false
+    const colors = new Set()
     queue[tail++] = seed
     visited[seed] = 1
 
@@ -118,6 +126,8 @@ export function countClosedRegions(mask, width, height) {
     while (head < tail) {
       const current = queue[head++]
       area += 1
+      const offset = current * 4
+      if (fillData?.[offset + 3]) colors.add((fillData[offset] << 16) | (fillData[offset + 1] << 8) | fillData[offset + 2])
       const x = current % width
       const y = (current / width) | 0
       if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesEdge = true
@@ -126,50 +136,32 @@ export function countClosedRegions(mask, width, height) {
       if (y > 0) visit(current - width)
       if (y + 1 < height) visit(current + width)
     }
-    if (!touchesEdge && area >= minimumArea) regions += 1
+    if (!touchesEdge && area > 0) regions += 1
+    for (const color of colors) {
+      const hex = `#${color.toString(16).padStart(6, '0').toUpperCase()}`
+      layerCounts.set(hex, (layerCounts.get(hex) || 0) + 1)
+    }
   }
 
-  return regions
+  return { regions, layerCounts }
 }
 
+export const countClosedRegions = (mask, width, height) => analyzeRegions(mask, width, height).regions
+
 export function fillClosedRegion({ x, y, mask, fillData, width, height, color }) {
-  const seed = y * width + x
-  if (mask[seed]) return { status: 'line' }
-  const offset = seed * 4
-  const target = [fillData[offset], fillData[offset + 1], fillData[offset + 2], fillData[offset + 3]]
+  if (!normalizeHex(color)) return { status: 'invalid-color' }
+  const region = findClosedRegion({ x, y, mask, width, height })
+  if (region.status !== 'closed') return { status: region.status }
+  if (!fillData || fillData.length !== width * height * 4) return { status: 'invalid' }
+  const { pixels } = region
   const rgb = hexToRgb(color)
-  if (target[0] === rgb.r && target[1] === rgb.g && target[2] === rgb.b && target[3] === 255) {
+  // Geometry determines the region. Old paint and PNG alpha must never become walls.
+  if (pixels.every((pixel) => {
+    const i = pixel * 4
+    return fillData[i] === rgb.r && fillData[i + 1] === rgb.g && fillData[i + 2] === rgb.b && fillData[i + 3] === 255
+  })) {
     return { status: 'same' }
   }
-
-  const total = width * height
-  const visited = new Uint8Array(total)
-  const queue = new Int32Array(total)
-  const pixels = []
-  let head = 0
-  let tail = 0
-  let touchesEdge = false
-  queue[tail++] = seed
-  visited[seed] = 1
-
-  const matches = (index) => {
-    const i = index * 4
-    return !mask[index] && fillData[i] === target[0] && fillData[i + 1] === target[1] && fillData[i + 2] === target[2] && fillData[i + 3] === target[3]
-  }
-
-  while (head < tail) {
-    const current = queue[head++]
-    pixels.push(current)
-    const px = current % width
-    const py = (current / width) | 0
-    if (px === 0 || py === 0 || px === width - 1 || py === height - 1) touchesEdge = true
-    if (px > 0) visit(current - 1)
-    if (px + 1 < width) visit(current + 1)
-    if (py > 0) visit(current - width)
-    if (py + 1 < height) visit(current + width)
-  }
-
-  if (touchesEdge) return { status: 'open' }
   const before = new Uint8ClampedArray(pixels.length * 4)
   pixels.forEach((pixel, index) => {
     const i = pixel * 4
@@ -180,11 +172,4 @@ export function fillClosedRegion({ x, y, mask, fillData, width, height, color })
     fillData[i + 3] = 255
   })
   return { status: 'filled', pixels, before }
-
-  function visit(next) {
-    if (!visited[next] && matches(next)) {
-      visited[next] = 1
-      queue[tail++] = next
-    }
-  }
 }

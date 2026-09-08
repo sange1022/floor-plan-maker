@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { countClosedRegions, createLineMask, fillClosedRegion, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
+import { analyzeRegions, countClosedRegions, createLineMask, fillClosedRegion, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
 
 const loadDataImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -36,13 +36,14 @@ const distributeByFactor = (range, slices, factor, addUp) => {
 
 const EditorCanvas = forwardRef(function EditorCanvas(
   {
-    source, tool, fillColor, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
+    source, tool, fillColor, busy, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
     fillLayerOpacities, fillLayerVisibility, fillLayerShadows, zoom, cropRequest, onRegions, onLayersChange, onMessage,
     onBusy, onCanvasSize, onCropApplied, onCropCancel, onHistoryChange,
   },
   ref,
 ) {
   const canvasRef = useRef(null)
+  const hoverCanvasRef = useRef(null)
   const sourceRef = useRef(null)
   const cropStartRef = useRef(null)
   const hoverFrameRef = useRef(null)
@@ -62,11 +63,12 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       .map((color) => ({ color, regionCount: engine.layerCounts.get(color) })))
   }
 
-  const adjustLayerCount = (color, amount) => {
-    if (!color) return
+  const refreshLayerCounts = () => {
     const engine = engineRef.current
-    if (!engine.layerCounts.has(color)) engine.layerOrder.push(color)
-    engine.layerCounts.set(color, Math.max(0, (engine.layerCounts.get(color) || 0) + amount))
+    const analysis = analyzeRegions(engine.mask, engine.width, engine.height, engine.fill.data)
+    engine.layerCounts = analysis.layerCounts
+    engine.layerOrder = [...new Set([...engine.layerOrder, ...analysis.layerCounts.keys()])].filter((color) => analysis.layerCounts.has(color))
+    emitLayers()
   }
 
   const emitHistory = () => {
@@ -105,7 +107,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     emitHistory()
   }
 
-  const render = (showHover = true) => {
+  const render = () => {
     const canvas = canvasRef.current
     const engine = engineRef.current
     if (!canvas || !engine.mask) return
@@ -203,7 +205,6 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     ctx.drawImage(engine.shadowCompositeCanvas, 0, 0)
     fillContext.putImageData(engine.displayFill, 0, 0)
     ctx.drawImage(engine.fillCanvas, 0, 0)
-    if (showHover && engine.hoverCanvas) ctx.drawImage(engine.hoverCanvas, 0, 0)
 
     const lineContext = engine.lineCanvas.getContext('2d')
     const lineImage = lineContext.createImageData(canvas.width, canvas.height)
@@ -220,7 +221,12 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     ctx.drawImage(engine.lineCanvas, 0, 0)
   }
 
-  const clearHover = (repaint = true) => {
+  const clearHover = () => {
+    lastHoverSeedRef.current = -1
+    if (hoverCanvasRef.current) {
+      const canvas = hoverCanvasRef.current
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+    }
     if (hoverFrameRef.current) {
       window.clearTimeout(hoverFrameRef.current)
       hoverFrameRef.current = null
@@ -231,7 +237,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     engine.hoverCanvas.getContext('2d').clearRect(x, y, width, height)
     engine.hoverBounds = null
     lastHoverSeedRef.current = -1
-    if (repaint) render()
+    // The separate hover canvas avoids recomputing fill layers and shadows on movement.
   }
 
   const paintHover = (pixels) => {
@@ -268,16 +274,25 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     })
     engine.hoverCanvas.getContext('2d').putImageData(preview, minX, minY)
     engine.hoverBounds = { x: minX, y: minY, width, height }
-    render()
+    const overlay = hoverCanvasRef.current
+    if (overlay) {
+      overlay.width = engine.width
+      overlay.height = engine.height
+      overlay.getContext('2d').drawImage(engine.hoverCanvas, 0, 0)
+    }
   }
 
   const rebuild = (notify = true, resetTimeline = false) => {
     const sourceCanvas = sourceRef.current
     if (!sourceCanvas) return
     onBusy(true)
+    clearHover()
     window.requestAnimationFrame(() => {
+      if (!canvasRef.current || sourceRef.current !== sourceCanvas) return
+      const previous = engineRef.current
       const line = createLineMask(sourceCanvas, sensitivity, gapSize)
       const fill = new ImageData(line.width, line.height)
+      if (!resetTimeline && previous.fill && previous.width === line.width && previous.height === line.height) fill.data.set(previous.fill.data)
       const displayFill = new ImageData(line.width, line.height)
       const fillCanvas = document.createElement('canvas')
       const lineCanvas = document.createElement('canvas')
@@ -294,11 +309,11 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       const regions = countClosedRegions(line.mask, line.width, line.height)
       engineRef.current.regions = regions
       onRegions(regions)
-      onLayersChange([])
+      refreshLayerCounts()
       render()
       onBusy(false)
       recordHistory(notify ? '重新识别区域' : '导入并识别线稿', resetTimeline)
-      if (notify) onMessage(`区域识别完成 · ${regions} 个围合区域${line.bridgedPixels ? ` · 修复 ${line.bridgedPixels} 个缺口像素` : ''}`)
+      if (notify) onMessage(`区域识别完成 · ${regions} 个围合区域 · 已保留填色${line.bridgedPixels ? ` · 修复 ${line.bridgedPixels} 个缺口像素` : ''}`)
     })
   }
 
@@ -345,10 +360,15 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillColor, hoverPreview, tool])
 
+  useEffect(() => () => {
+    if (hoverFrameRef.current) window.clearTimeout(hoverFrameRef.current)
+  }, [])
+
   const restoreTimelineIndex = (index) => {
     const timeline = timelineRef.current
     const snapshot = timeline.entries[index]
     if (!snapshot) return false
+    clearHover()
     const fillCanvas = document.createElement('canvas')
     const lineCanvas = document.createElement('canvas')
     const hoverCanvas = document.createElement('canvas')
@@ -420,8 +440,8 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       return true
     },
     exportPng({ scale = 1, transparent = false } = {}) {
-      clearHover(false)
-      render(false)
+      clearHover()
+      render()
       const engine = engineRef.current
       const natural = document.createElement('canvas')
       natural.width = engine.width
@@ -471,6 +491,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     },
     async importProjectData(project, recognition = {}) {
       if (!project?.source || !project?.fill) return false
+      clearHover()
       onBusy(true)
       const [sourceImage, fillImage] = await Promise.all([loadDataImage(project.source), loadDataImage(project.fill)])
       const sourceCanvas = document.createElement('canvas')
@@ -505,7 +526,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       canvasRef.current.height = project.height
       onCanvasSize({ width: project.width, height: project.height })
       onRegions(regions)
-      emitLayers()
+      refreshLayerCounts()
       render()
       onBusy(false)
       recordHistory('打开项目文件', true)
@@ -519,6 +540,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   }))
 
   const handleCanvasClick = (event) => {
+    if (busy || !engineRef.current.fill) { onMessage('正在处理线稿，请稍后再填色'); return }
     if (tool === 'crop') return
     if (tool !== 'bucket') {
       onMessage('请切换到油漆桶进行填色')
@@ -529,26 +551,26 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     const x = Math.max(0, Math.min(canvas.width - 1, Math.floor((event.clientX - rect.left) * canvas.width / rect.width)))
     const y = Math.max(0, Math.min(canvas.height - 1, Math.floor((event.clientY - rect.top) * canvas.height / rect.height)))
     const engine = engineRef.current
-    clearHover(false)
+    clearHover()
     const result = fillClosedRegion({ x, y, mask: engine.mask, fillData: engine.fill.data, width: engine.width, height: engine.height, color: fillColor })
     if (result.status === 'filled') {
-      const previousColor = result.before[3]
-        ? `#${[result.before[0], result.before[1], result.before[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}`.toUpperCase()
-        : null
-      result.previousColor = previousColor
       result.newColor = fillColor.toUpperCase()
-      engine.history.push(result)
-      if (engine.history.length > 20) engine.history.shift()
-      adjustLayerCount(previousColor, -1)
-      adjustLayerCount(result.newColor, 1)
-      emitLayers()
+      refreshLayerCounts()
       render()
       recordHistory(`填充颜色 ${result.newColor}`)
-      onMessage('已填充所选围合区域')
+      onMessage(fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
+        ? '填色已保存，但该颜色图层不可见，请在「填充颜色」中点击显示图层'
+        : `已填充 ${fillColor} · 可撤销或继续选择其他颜色`)
     } else if (result.status === 'open') {
-      onMessage('这里不是围合区域，请调整识别灵敏度')
+      onMessage('该区域连通画布边缘：请在「识别区域」增大防漏值，再点重新识别')
     } else if (result.status === 'line') {
       onMessage('点到线稿了，请点击线条内部')
+    } else if (result.status === 'same') {
+      onMessage(fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
+        ? '这里已填过该颜色，但图层不可见；请在「填充颜色」中点击显示图层'
+        : '这个区域已经是当前颜色，请选择另一种颜色替换')
+    } else {
+      onMessage('当前颜色或画布尚未准备好，请重新选色后再试')
     }
   }
 
@@ -570,11 +592,12 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   }
 
   const handleCropPointerMove = (event) => {
-    if (tool === 'bucket' && hoverPreview && !cropStartRef.current) {
-      const point = pointFromEvent(event)
+    if (!busy && tool === 'bucket' && hoverPreview && !cropStartRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect()
       const engine = engineRef.current
-      const x = Math.min(engine.width - 1, point.x)
-      const y = Math.min(engine.height - 1, point.y)
+      if (!engine.mask) return
+      const x = Math.max(0, Math.min(engine.width - 1, Math.floor((event.clientX - rect.left) * engine.width / rect.width)))
+      const y = Math.max(0, Math.min(engine.height - 1, Math.floor((event.clientY - rect.top) * engine.height / rect.height)))
       const seed = y * engine.width + x
       if (seed === lastHoverSeedRef.current) return
       lastHoverSeedRef.current = seed
@@ -664,6 +687,8 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     engineRef.current.regions = regions
     onRegions(regions)
     onCanvasSize({ width, height })
+    clearHover()
+    refreshLayerCounts()
     render()
     recordHistory(`裁剪为 ${width} × ${height} px`)
     setCropSelection(null)
@@ -688,6 +713,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
         className={`art-canvas tool-${tool}`}
         aria-label="线稿填色画布"
       />
+      <canvas ref={hoverCanvasRef} className="fill-hover-overlay" aria-hidden="true" />
       {tool === 'crop' && cropSelection ? (
         <div
           className="crop-selection"

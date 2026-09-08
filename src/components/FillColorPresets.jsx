@@ -56,7 +56,8 @@ export default function FillColorPresets({ color, onChange }) {
                 className={`vertical-preset-swatch ${active ? 'active' : ''}`}
                 style={{ background: presetColor }}
                 key={presetColor}
-                onClick={() => onChange(presetColor)}
+                onClick={() => { onChange(presetColor); setOpen(false) }}
+                aria-pressed={active}
                 aria-label={`选择${selectedPreset.name}颜色 ${presetColor}`}
                 title={presetColor}
               ><span>{presetColor}</span>
