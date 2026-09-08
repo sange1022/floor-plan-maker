@@ -60,6 +60,7 @@ export default function App() {
   const [fillColor, setFillColor] = useState('#E8754F')
   const [lineColor, setLineColor] = useState('#1A1A1A')
   const [lineOpacity, setLineOpacity] = useState(100)
+  const [linePosition, setLinePosition] = useState('top')
   const [sensitivity, setSensitivity] = useState(54)
   const [gapSize, setGapSize] = useState(1)
   const [hoverPreview, setHoverPreview] = useState(true)
@@ -209,7 +210,7 @@ export default function App() {
       documentName,
       editor,
       settings: {
-        fillColor, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview,
+        fillColor, lineColor, lineOpacity, linePosition, sensitivity, gapSize, hoverPreview,
         backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows,
       },
       background: background ? { name: backgroundName, data: imageToDataUrl(background) } : null,
@@ -239,6 +240,7 @@ export default function App() {
       setFillColor(normalizeHex(settings.fillColor) || '#E8754F')
       setLineColor(settings.lineColor || '#1A1A1A')
       setLineOpacity(settings.lineOpacity ?? 100)
+      setLinePosition(settings.linePosition === 'bottom' ? 'bottom' : 'top')
       setSensitivity(settings.sensitivity ?? 54)
       setGapSize(settings.gapSize ?? 1)
       setHoverPreview(settings.hoverPreview !== false)
@@ -381,6 +383,7 @@ export default function App() {
               busy={busy}
               lineColor={lineColor}
               lineOpacity={lineOpacity}
+              linePosition={linePosition}
               sensitivity={sensitivity}
               gapSize={gapSize}
               hoverPreview={hoverPreview}
@@ -428,6 +431,16 @@ export default function App() {
             </div> : null}
           </InspectorSection>
           <InspectorSection title={`填色图层${fillLayers.length ? ` (${fillLayers.length})` : ''}`}>
+            <div className="line-layer-order">
+              <div className="line-layer-heading"><ScanLine size={16} /><strong>线稿图层</strong><small>{linePosition === 'top' ? '位于填色上方' : '位于填色下方'}</small></div>
+              <div className="line-order-buttons" role="group" aria-label="线稿图层顺序">
+                {[{ value: 'top', label: '线稿置顶' }, { value: 'bottom', label: '线稿置底' }].map((item) => (
+                  <button key={item.value} type="button" aria-pressed={linePosition === item.value}
+                    onClick={() => { setLinePosition(item.value); setMessage(`${item.label}，填色和导出按新顺序显示`) }}>{item.label}</button>
+                ))}
+              </div>
+              <p className="line-stack-description">从上到下：{linePosition === 'top' ? '线稿 → 填色与阴影 → 背景' : '填色与阴影 → 线稿 → 背景'}</p>
+            </div>
             {fillLayers.length ? (
               <div className="fill-layer-list">
                 {fillLayers.map((layer) => {

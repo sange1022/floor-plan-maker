@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { analyzeRegions, countClosedRegions, createLineMask, fillClosedRegion, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
+import { drawArtworkLayers } from '../lib/compositeLayers'
 
 const loadDataImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -36,7 +37,7 @@ const distributeByFactor = (range, slices, factor, addUp) => {
 
 const EditorCanvas = forwardRef(function EditorCanvas(
   {
-    source, tool, fillColor, busy, lineColor, lineOpacity, sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
+    source, tool, fillColor, busy, lineColor, lineOpacity, linePosition = 'top', sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
     fillLayerOpacities, fillLayerVisibility, fillLayerShadows, zoom, cropRequest, onRegions, onLayersChange, onMessage,
     onBusy, onCanvasSize, onCropApplied, onCropCancel, onHistoryChange,
   },
@@ -202,9 +203,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       compositeContext.drawImage(engine.shadowLayerCanvas, 0, 0)
       compositeContext.restore()
     })
-    ctx.drawImage(engine.shadowCompositeCanvas, 0, 0)
     fillContext.putImageData(engine.displayFill, 0, 0)
-    ctx.drawImage(engine.fillCanvas, 0, 0)
 
     const lineContext = engine.lineCanvas.getContext('2d')
     const lineImage = lineContext.createImageData(canvas.width, canvas.height)
@@ -218,7 +217,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     }
     lineContext.clearRect(0, 0, canvas.width, canvas.height)
     lineContext.putImageData(lineImage, 0, 0)
-    ctx.drawImage(engine.lineCanvas, 0, 0)
+    drawArtworkLayers(ctx, engine, linePosition)
   }
 
   const clearHover = () => {
@@ -352,7 +351,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     })
   }, [cropRequest, tool])
 
-  useEffect(render, [background, backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows, lineColor, lineOpacity])
+  useEffect(render, [background, backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows, lineColor, lineOpacity, linePosition])
 
   useEffect(() => {
     lastHoverSeedRef.current = -1
@@ -459,9 +458,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
           naturalContext.drawImage(background, (engine.width - width) / 2, (engine.height - height) / 2, width, height)
           naturalContext.restore()
         }
-        if (engine.shadowCompositeCanvas) naturalContext.drawImage(engine.shadowCompositeCanvas, 0, 0)
-        naturalContext.drawImage(engine.fillCanvas, 0, 0)
-        naturalContext.drawImage(engine.lineCanvas, 0, 0)
+        drawArtworkLayers(naturalContext, engine, linePosition)
       }
       const output = document.createElement('canvas')
       output.width = engine.width * scale

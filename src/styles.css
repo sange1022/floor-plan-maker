@@ -52,6 +52,15 @@ button { color: inherit; }
 .fill-hover-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .fill-visibility-notice { display: grid; gap: 8px; border: 1px solid #e5c68d; border-radius: 8px; padding: 10px; background: #fff9eb; color: #755222; font-size: 12px; line-height: 1.6; }
 .fill-visibility-notice button { border: 1px solid #dec28c; border-radius: 6px; padding: 7px; background: #fff; color: inherit; cursor: pointer; }
+.line-layer-order { margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: #fafbfc; }
+.line-layer-heading { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.line-layer-heading strong { font-weight: 600; }
+.line-layer-heading small { margin-left: auto; font-size: 10px; color: var(--muted); }
+.line-order-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 10px; border-radius: 7px; padding: 3px; background: #e9edf0; }
+.line-order-buttons button { border: 1px solid transparent; border-radius: 5px; padding: 7px 4px; background: transparent; color: #616972; font-size: 11px; cursor: pointer; }
+.line-order-buttons button[aria-pressed="true"] { background: #fff; border-color: #dfe3e8; color: var(--accent); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.line-order-buttons button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.line-stack-description { margin: 8px 0 0; font-size: 10px; color: #67717b; line-height: 1.6; }
 .color-input-error { color: #b24232; }
 .active-tool-status { font-size: 11px; color: #6c747c; }
 button.layer-swatch { cursor: pointer; padding: 0; flex-shrink: 0; }
