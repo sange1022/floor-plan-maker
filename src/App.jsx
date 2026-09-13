@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Crop, Download, Eye, EyeOff, FileText, FolderOpen, History as HistoryIcon,
-  LocateFixed, MousePointer2, PaintBucket, Redo2, RotateCcw, Save, ScanLine, Trash2,
+  LocateFixed, MousePointer2, PaintBucket, Redo2, RotateCcw, RotateCw, Save, ScanLine, Trash2,
   Undo2, Upload, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import EditorCanvas from './components/EditorCanvas'
@@ -331,6 +331,14 @@ export default function App() {
     setMessage('已完整显示画布，可继续放大查看细节')
   }
 
+  const rotateCanvas = (clockwise) => {
+    if (!editorRef.current?.rotate(clockwise)) return
+    setTool('bucket')
+    setCropRequest(null)
+    setMessage(`已向${clockwise ? '右' : '左'}旋转 90° · 填色同步旋转 · 可撤销`)
+    window.requestAnimationFrame(() => workspaceRef.current?.scrollTo({ left: 0, top: 0 }))
+  }
+
   const restoreHistory = (id) => {
     if (!editorRef.current?.restoreHistory(id)) return
     setTool('bucket')
@@ -368,6 +376,8 @@ export default function App() {
               <button type="button" onClick={redo} disabled={!canRedo} aria-label="重做"><Redo2 size={17} /></button>
             </div>
             <div className="canvas-view-controls">
+              <button className="canvas-fit-control canvas-rotate-control" type="button" disabled={busy || !source} onClick={() => rotateCanvas(false)} aria-label="向左旋转90度" title="向左旋转 90°"><RotateCcw size={16} /></button>
+              <button className="canvas-fit-control canvas-rotate-control" type="button" disabled={busy || !source} onClick={() => rotateCanvas(true)} aria-label="向右旋转90度" title="向右旋转 90°"><RotateCw size={16} /></button>
               <button className="canvas-fit-control" type="button" onClick={fitCanvas} aria-label="完整显示画布"><ScanLine size={16} /><span>完整显示</span></button>
               <button className="canvas-center-control" type="button" onClick={centerCanvas} aria-label="一键居中并放大到200%"><LocateFixed size={16} /><span>一键居中 · 200%</span></button>
             </div>

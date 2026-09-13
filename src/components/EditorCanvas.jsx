@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { analyzeRegions, countClosedRegions, createLineMask, fillClosedRegion, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
 import { drawArtworkLayers } from '../lib/compositeLayers'
+import { rotatePlane } from '../lib/rotatePlane'
 
 const loadDataImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -403,6 +404,37 @@ const EditorCanvas = forwardRef(function EditorCanvas(
 
   useImperativeHandle(ref, () => ({
     recognize: rebuild,
+    rotate(clockwise = true) {
+      const engine = engineRef.current
+      if (busy || !engine.fill || !sourceRef.current) return false
+      clearHover()
+      cropStartRef.current = null
+      setCropSelection(null)
+      const width = engine.height
+      const height = engine.width
+      const rotate = (data, channels = 1) => rotatePlane(data, engine.width, engine.height, channels, clockwise)
+      const sourceData = sourceRef.current.getContext('2d').getImageData(0, 0, engine.width, engine.height)
+      const rotatedSource = document.createElement('canvas')
+      rotatedSource.width = width
+      rotatedSource.height = height
+      rotatedSource.getContext('2d').putImageData(new ImageData(rotate(sourceData.data, 4), width, height), 0, 0)
+      const fillCanvas = document.createElement('canvas')
+      const lineCanvas = document.createElement('canvas')
+      const hoverCanvas = document.createElement('canvas')
+      for (const canvas of [fillCanvas, lineCanvas, hoverCanvas]) { canvas.width = width; canvas.height = height }
+      sourceRef.current = rotatedSource
+      engineRef.current = {
+        ...engine, width, height, mask: rotate(engine.mask), lineAlpha: rotate(engine.lineAlpha),
+        fill: new ImageData(rotate(engine.fill.data, 4), width, height), displayFill: new ImageData(width, height),
+        fillCanvas, lineCanvas, hoverCanvas, hoverBounds: null, history: [],
+      }
+      canvasRef.current.width = width
+      canvasRef.current.height = height
+      onCanvasSize({ width, height })
+      render()
+      recordHistory(clockwise ? '向右旋转 90°' : '向左旋转 90°')
+      return true
+    },
     undo() {
       return restoreTimelineIndex(timelineRef.current.index - 1)
     },

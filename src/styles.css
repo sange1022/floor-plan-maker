@@ -47,6 +47,8 @@ button { color: inherit; }
 .canvas-view-controls .canvas-center-control { position: static; }
 .canvas-fit-control { height: 36px; display: flex; align-items: center; gap: 6px; border: 1px solid #d0d6db; border-radius: 9px; padding: 0 11px; background: rgba(255,255,255,.94); color: #4e565d; font-size: 11px; cursor: pointer; }
 .canvas-fit-control:hover { color: var(--accent); background: #fff; }
+.canvas-rotate-control { width: 34px; justify-content: center; padding: 0; }
+.canvas-rotate-control:disabled { opacity: .4; cursor: wait; }
 .paper-frame { position: relative; flex: 0 0 auto; margin-inline: auto; background: #fff; border: 1px solid #cfd5da; box-shadow: 0 5px 18px rgba(48,58,65,.12); }
 .workspace { justify-content: flex-start; }
 .fill-hover-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -275,6 +277,8 @@ button.layer-swatch { cursor: pointer; padding: 0; flex-shrink: 0; }
 }
 
 @media (max-width: 760px) {
+  .canvas-view-controls .canvas-center-control span { display: none; }
+  .canvas-view-controls .canvas-center-control { padding-inline: 9px; }
   .active-tool-status { display: none; }
   .canvas-fit-control span { display: none; }
   .canvas-fit-control { padding: 0 8px; }
