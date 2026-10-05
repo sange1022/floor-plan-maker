@@ -384,7 +384,7 @@ export default function App() {
       </header>
 
       <div className="editor-grid">
-        <aside className="left-panel">
+        <aside className={`left-panel ${libraryOpen ? 'flyout-open' : ''}`}>
           <nav className="tool-rail" aria-label="绘图工具">
             {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => { setTool(item.id); if (item.id === 'crop') setSettingsPanel('settings') }} />)}
             <FillColorPresets color={activeMaterial.color} onChange={chooseFillColor} />
