@@ -262,6 +262,12 @@ export default function App() {
       if (![1, 2].includes(project.version) || !project.editor) throw new Error('Unsupported project')
       const settings = project.settings || {}
       const restoredBackground = project.background?.data ? await loadImage(project.background.data) : null
+      const imported = await editorRef.current?.importProjectData(project.editor, {
+        ...settings,
+        sensitivity: settings.sensitivity ?? 54,
+        gapSize: settings.gapSize ?? 1,
+      })
+      if (!imported) throw new Error('项目缺少线稿或填充数据')
       setDocumentName(project.documentName || file.name.replace(/\.weicolor$/i, ''))
       setPdfDocument(null)
       setPage(1)
@@ -281,11 +287,6 @@ export default function App() {
 
 
 
-      await editorRef.current?.importProjectData(project.editor, {
-        ...settings,
-        sensitivity: settings.sensitivity ?? 54,
-        gapSize: settings.gapSize ?? 1,
-      })
       setTool('bucket')
       setMessage('项目已打开，可以继续编辑')
     } catch (error) {
@@ -479,6 +480,7 @@ export default function App() {
       {settingsPanel ? <div className="settings-backdrop" onClick={() => setSettingsPanel(null)}>
         <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={settingsPanel === 'history' ? '历史记录面板' : '画面与画布设置面板'} onClick={event => event.stopPropagation()}>
           <div className="panel-title"><div><strong>{settingsPanel === 'history' ? '历史记录' : '画面与画布设置'}</strong><small>所有修改仍在当前作品中</small></div><button type="button" aria-label="关闭设置面板" onClick={() => setSettingsPanel(null)}><X size={18} /></button></div>
+          {settingsPanel !== 'history' ? <div className="mobile-project-actions"><button className="button secondary" type="button" onClick={() => projectInputRef.current?.click()}><FolderOpen size={16} />打开项目</button><button className="button secondary" type="button" onClick={saveProject}><Save size={16} />保存项目</button></div> : null}
           <div className={`settings-content ${settingsPanel === 'history' ? 'history-only' : ''}`}>
           <InspectorSection title="画面设置">
             <AppearanceSettings

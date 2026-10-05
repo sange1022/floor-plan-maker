@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { MATERIAL_PRESETS, normalizeMaterial, createMaterialState, assignMaterial, paintRegion, editMaterial, deleteMaterial, cloneMaterialState, encodeAssignments, decodeAssignments, migrateLegacyFill, transformMaterials } from '../src/lib/materials.js'
 import { rotatePlane } from '../src/lib/rotatePlane.js'
+import { herringbonePlanks } from '../src/lib/materialPatterns.js'
+import { findClosedRegion, createLineMask } from '../src/lib/canvasEngine.js'
 
 test('presetCatalog: each architectural preset can create a distinct material', () => {
   const state = createMaterialState(8)
@@ -119,4 +121,26 @@ test('cropOrigins: cutting 13px left and 8px top preserves texture world coordin
   const state=createMaterialState(1);assignMaterial(state,[0],{type:'wood'})
   transformMaterials(state,[1,0,0,1,-13,-8])
   assert.deepEqual(state.materials[1].transform,[1,0,0,1,-13,-8])
+})
+
+test('herringboneParquet: each repeating tile cell belongs to exactly one plank', () => {
+  const cells=new Uint8Array(36)
+  for(const [x,y,w,h] of herringbonePlanks())for(let py=Math.max(0,y);py<Math.min(6,y+h);py++)for(let px=Math.max(0,x);px<Math.min(6,x+w);px++)cells[py*6+px]++
+  assert.ok(cells.every(count=>count===1),'herringbone planks must neither overlap nor leave gaps')
+})
+test('largeClosedRoom: region fill is not capped at 300000 pixels', () => {
+  const width=900,height=600,mask=new Uint8Array(width*height)
+  for(let x=0;x<width;x++){mask[x]=1;mask[(height-1)*width+x]=1}
+  for(let y=0;y<height;y++){mask[y*width]=1;mask[y*width+width-1]=1}
+  const result=findClosedRegion({x:30,y:30,mask,width,height})
+  assert.equal(result.status,'closed');assert.equal(result.pixels.length,537004)
+})
+test('gapClosure: recognition bridges a one-pixel break without changing original artwork', () => {
+  const width=9,height=9,data=new Uint8ClampedArray(width*height*4);data.fill(255)
+  for(let y=2;y<=6;y++)for(let x=2;x<=6;x++)if((x===2||x===6||y===2||y===6)&&!(x===4&&y===2)){const i=(y*width+x)*4;data[i]=data[i+1]=data[i+2]=0}
+  const source={width,height,getContext:()=>({getImageData:()=>({data})})}
+  const open=createLineMask(source,54,0),closed=createLineMask(source,54,1)
+  assert.equal(findClosedRegion({x:4,y:4,...open}).status,'open')
+  assert.equal(findClosedRegion({x:4,y:4,...closed}).status,'closed')
+  assert.equal(closed.lineAlpha[2*width+4],0)
 })

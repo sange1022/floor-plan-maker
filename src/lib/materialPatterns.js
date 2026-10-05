@@ -1,6 +1,17 @@
 import { normalizeMaterial } from './materials.js'
 
 const tileCache = new Map()
+export function herringbonePlanks() {
+  const planks = []
+  // Six-cell period partitions sums 0/1/2 into horizontal planks and 3/4/5
+  // into vertical planks. The tile is six cells wide, so its seams repeat.
+  for (let y = -6; y < 12; y++) for (let x = -6; x < 12; x++) {
+    const phase = ((x + y) % 6 + 6) % 6
+    if (phase === 0) planks.push([x, y, 3, 1])
+    if (phase === 3) planks.push([x, y, 1, 3])
+  }
+  return planks
+}
 export function createPatternTile(input) {
   const material = normalizeMaterial(input)
   const key = `${material.type}:${material.inkColor}`
@@ -38,11 +49,7 @@ export function createPatternTile(input) {
       break
     case 'herringbone':
       // A periodic parquet block, rotated 45° in the pattern transform.
-      for (let y = -192; y <= 384; y += 24) for (let x = -192; x <= 384; x += 24) {
-        const phase = ((x / 24 + y / 24) % 4 + 4) % 4
-        if (phase === 0) ctx.strokeRect(x, y, 72, 24)
-        if (phase === 3) ctx.strokeRect(x, y, 24, 72)
-      }
+      for (const [x, y, width, height] of herringbonePlanks()) ctx.strokeRect(x * 32, y * 32, width * 32, height * 32)
       break
     case 'stone':
       for (let i = 0; i <= 192; i += 96) { line(i, 0, i, 192); line(0, i, 192, i) }

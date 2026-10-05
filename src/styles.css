@@ -322,6 +322,7 @@ button.layer-swatch { cursor: pointer; padding: 0; flex-shrink: 0; }
 .settings-content:not(.history-only) > .inspector-section:nth-child(3) { display: none; }
 .settings-content.history-only > .inspector-section:not(:nth-child(3)) { display: none; }
 .mobile-properties-trigger, .inspector-tabs > .mobile-panel-close { display: none; }
+.mobile-project-actions { display: none; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .region-status, .zoom-controls { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .zoom-controls button { width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; display: grid; place-items: center; cursor: pointer; }
@@ -372,6 +373,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   .brand { white-space: nowrap; }
   .settings-backdrop { padding: 10px; }
   .settings-dialog { max-height: calc(100svh - 20px); }
+  .mobile-project-actions { display: flex; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+  .mobile-project-actions .button { flex: 1; justify-content: center; }
   .workspace { padding: 58px 18px 24px; }
   .canvas-floating-controls { inset: 8px 8px auto; }
   .statusbar { grid-template-columns: 1fr 1fr; }

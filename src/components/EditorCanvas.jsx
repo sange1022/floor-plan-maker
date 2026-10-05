@@ -547,7 +547,6 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       sourceCanvas.width = project.width
       sourceCanvas.height = project.height
       sourceCanvas.getContext('2d').drawImage(sourceImage, 0, 0, project.width, project.height)
-      sourceRef.current = sourceCanvas
       const line = createLineMask(sourceCanvas, recognition.sensitivity ?? sensitivity, recognition.gapSize ?? gapSize)
       const fillCanvas = document.createElement('canvas')
       const lineCanvas = document.createElement('canvas')
@@ -571,6 +570,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
         materialState = { assignments, materials, nextId: Math.max(0, ...Object.keys(materials).map(Number)) + 1 }
       } else materialState = migrateLegacyFill(fill.data, recognition)
       const regions = countClosedRegions(line.mask, project.width, project.height)
+      // Commit only after all images and material references validate. A bad
+      // project must not replace the source of the work currently on screen.
+      sourceRef.current = sourceCanvas
       engineRef.current = {
         ...line,
         materialState,
