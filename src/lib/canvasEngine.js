@@ -99,7 +99,7 @@ export function findClosedRegion({ x, y, mask, width, height }) {
   return { status: 'closed', pixels: queue.subarray(0, tail) }
 }
 
-export function analyzeRegions(mask, width, height, fillData) {
+export function analyzeRegions(mask, width, height, fillData, keyAt) {
   const total = width * height
   const visited = new Uint8Array(total)
   const queue = new Int32Array(total)
@@ -127,7 +127,8 @@ export function analyzeRegions(mask, width, height, fillData) {
       const current = queue[head++]
       area += 1
       const offset = current * 4
-      if (fillData?.[offset + 3]) colors.add((fillData[offset] << 16) | (fillData[offset + 1] << 8) | fillData[offset + 2])
+      if (keyAt) { const key = keyAt(current); if (key) colors.add(String(key)) }
+      else if (fillData?.[offset + 3]) colors.add((fillData[offset] << 16) | (fillData[offset + 1] << 8) | fillData[offset + 2])
       const x = current % width
       const y = (current / width) | 0
       if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesEdge = true
@@ -138,7 +139,7 @@ export function analyzeRegions(mask, width, height, fillData) {
     }
     if (!touchesEdge && area > 0) regions += 1
     for (const color of colors) {
-      const hex = `#${color.toString(16).padStart(6, '0').toUpperCase()}`
+      const hex = typeof color === 'string' ? color : `#${color.toString(16).padStart(6, '0').toUpperCase()}`
       layerCounts.set(hex, (layerCounts.get(hex) || 0) + 1)
     }
   }

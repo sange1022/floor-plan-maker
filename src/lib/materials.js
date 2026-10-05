@@ -1,4 +1,4 @@
-import { normalizeHex } from './canvasEngine.js'
+import { normalizeHex, findClosedRegion } from './canvasEngine.js'
 
 export const MATERIAL_PRESETS = [
   { id: 'brick', name: '错缝砖', category: '砖与铺装', color: '#D3B8A4' },
@@ -42,3 +42,33 @@ export function assignMaterial(state, pixels, input) {
   return id
 }
 export const materialName = (material) => material.type === 'solid' ? `纯色 ${material.color}` : material.name
+
+export function paintRegion(state, { x, y, mask, width, height, material }) {
+  const result = findClosedRegion({ x, y, mask, width, height })
+  if (result.status !== 'closed') return result
+  const normalized = normalizeMaterial(material)
+  const current = state.assignments[y * width + x]
+  if (current && result.pixels.every(pixel => state.assignments[pixel] === current)
+    && JSON.stringify(state.materials[current]) === JSON.stringify(normalized)) return { ...result, id: current, status: 'same' }
+  const id = assignMaterial(state, result.pixels, normalized)
+  return { ...result, id, status: 'filled' }
+}
+export function editMaterial(state, id, patch, pixels) {
+  if (!state.materials[id]) return null
+  const material = normalizeMaterial({ ...state.materials[id], ...patch })
+  if (!pixels) { state.materials[id] = material; return Number(id) }
+  // Only split if another region uses this instance. A split gets its own ID
+  // even if its parameters match another instance: a local edit stays local.
+  const selected = new Set(pixels)
+  const shared = state.assignments.some((value, index) => value === Number(id) && !selected.has(index))
+  const target = shared ? state.nextId++ : Number(id)
+  state.materials[target] = material
+  for (const pixel of pixels) state.assignments[pixel] = target
+  return target
+}
+export function deleteMaterial(state, id, pixels) {
+  if (!state.materials[id]) return false
+  if (pixels) { for (const pixel of pixels) state.assignments[pixel] = 0 }
+  else { for (let i = 0; i < state.assignments.length; i++) if (state.assignments[i] === Number(id)) state.assignments[i] = 0 }
+  return true
+}

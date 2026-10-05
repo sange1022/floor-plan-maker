@@ -1,5 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { analyzeRegions, countClosedRegions, createLineMask, fillClosedRegion, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
+import { analyzeRegions, countClosedRegions, createLineMask, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
+import { createMaterialState, cloneMaterialState, paintRegion, editMaterial, deleteMaterial, materialName } from '../lib/materials'
+import { renderMaterialFill } from '../lib/materialPatterns'
 import { drawArtworkLayers } from '../lib/compositeLayers'
 import { rotatePlane } from '../lib/rotatePlane'
 
@@ -38,7 +40,7 @@ const distributeByFactor = (range, slices, factor, addUp) => {
 
 const EditorCanvas = forwardRef(function EditorCanvas(
   {
-    source, tool, fillColor, busy, lineColor, lineOpacity, linePosition = 'top', sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
+    source, tool, fillColor, activeMaterial, onMaterialStateChange = () => {}, onSelectionChange = () => {}, busy, lineColor, lineOpacity, linePosition = 'top', sensitivity, gapSize, hoverPreview, background, backgroundOpacity,
     fillLayerOpacities, fillLayerVisibility, fillLayerShadows, zoom, cropRequest, onRegions, onLayersChange, onMessage,
     onBusy, onCanvasSize, onCropApplied, onCropCancel, onHistoryChange,
   },
@@ -50,6 +52,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   const cropStartRef = useRef(null)
   const hoverFrameRef = useRef(null)
   const lastHoverSeedRef = useRef(-1)
+  const selectionRef = useRef(null)
   const timelineRef = useRef({ entries: [], index: -1, sequence: 0 })
   const [cropSelection, setCropSelection] = useState(null)
   const engineRef = useRef({
@@ -60,14 +63,23 @@ const EditorCanvas = forwardRef(function EditorCanvas(
 
   const emitLayers = () => {
     const engine = engineRef.current
-    onLayersChange(engine.layerOrder
-      .filter((color) => (engine.layerCounts.get(color) || 0) > 0)
-      .map((color) => ({ color, regionCount: engine.layerCounts.get(color) })))
+    if (!engine.materialState) return
+    const layers = engine.layerOrder.filter(id => engine.layerCounts.get(String(id)) > 0)
+      .map(id => ({ ...engine.materialState.materials[id], id: Number(id), name: materialName(engine.materialState.materials[id]), regionCount: engine.layerCounts.get(String(id)) }))
+    onMaterialStateChange(layers)
+    onLayersChange(layers)
+  }
+
+  const selectRegion = (seed) => {
+    const engine = engineRef.current
+    const materialId = seed == null ? null : engine.materialState.assignments[seed]
+    selectionRef.current = seed == null ? null : { seed, materialId }
+    onSelectionChange(selectionRef.current)
   }
 
   const refreshLayerCounts = () => {
     const engine = engineRef.current
-    const analysis = analyzeRegions(engine.mask, engine.width, engine.height, engine.fill.data)
+    const analysis = analyzeRegions(engine.mask, engine.width, engine.height, null, pixel => engine.materialState.assignments[pixel])
     engine.layerCounts = analysis.layerCounts
     engine.layerOrder = [...new Set([...engine.layerOrder, ...analysis.layerCounts.keys()])].filter((color) => analysis.layerCounts.has(color))
     emitLayers()
@@ -97,6 +109,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       mask: engine.mask,
       lineAlpha: engine.lineAlpha,
       fillData: engine.fill.data.slice(),
+      materialState: cloneMaterialState(engine.materialState),
       width: engine.width,
       height: engine.height,
       layerCounts: new Map(engine.layerCounts),
@@ -129,35 +142,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     }
 
     const fillContext = engine.fillCanvas.getContext('2d')
-    const rawFill = engine.fill.data
-    const displayFill = engine.displayFill.data
-    const opacityByColor = new Map(Object.entries(fillLayerOpacities).map(([color, opacity]) => [
-      Number.parseInt(color.slice(1), 16), fillLayerVisibility[color] === false ? 0 : opacity / 100,
-    ]))
-    Object.entries(fillLayerVisibility).forEach(([color, visible]) => {
-      if (visible === false && !Object.hasOwn(fillLayerOpacities, color)) opacityByColor.set(Number.parseInt(color.slice(1), 16), 0)
-    })
-    const shadowMasks = new Map(Object.entries(fillLayerShadows || {})
-      .filter(([color, shadow]) => shadow && fillLayerVisibility[color] !== false && (fillLayerOpacities[color] ?? 100) > 0)
-      .map(([color, shadow]) => [Number.parseInt(color.slice(1), 16), { shadow, image: new ImageData(canvas.width, canvas.height) }]))
-    for (let offset = 0; offset < rawFill.length; offset += 4) {
-      displayFill[offset] = rawFill[offset]
-      displayFill[offset + 1] = rawFill[offset + 1]
-      displayFill[offset + 2] = rawFill[offset + 2]
-      if (rawFill[offset + 3]) {
-        const packedColor = (rawFill[offset] << 16) | (rawFill[offset + 1] << 8) | rawFill[offset + 2]
-        displayFill[offset + 3] = Math.round(rawFill[offset + 3] * (opacityByColor.get(packedColor) ?? 1))
-        const shadowMask = shadowMasks.get(packedColor)
-        if (shadowMask) {
-          shadowMask.image.data[offset] = 255
-          shadowMask.image.data[offset + 1] = 255
-          shadowMask.image.data[offset + 2] = 255
-          shadowMask.image.data[offset + 3] = rawFill[offset + 3]
-        }
-      } else {
-        displayFill[offset + 3] = 0
-      }
-    }
+    const materialMasks = renderMaterialFill(fillContext, engine.materialState, canvas.width, canvas.height)
+    const shadowMasks = new Map([...materialMasks].filter(([id]) => engine.materialState.materials[id].shadow)
+      .map(([id, image]) => [id, { image, shadow: engine.materialState.materials[id].shadow }]))
     if (!engine.shadowMaskCanvas || engine.shadowMaskCanvas.width !== canvas.width || engine.shadowMaskCanvas.height !== canvas.height) {
       engine.shadowMaskCanvas = document.createElement('canvas')
       engine.shadowLayerCanvas = document.createElement('canvas')
@@ -171,7 +158,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     const shadowContext = engine.shadowLayerCanvas.getContext('2d')
     const compositeContext = engine.shadowCompositeCanvas.getContext('2d')
     compositeContext.clearRect(0, 0, canvas.width, canvas.height)
-    shadowMasks.forEach(({ shadow, image }, packedColor) => {
+    shadowMasks.forEach(({ shadow, image }, materialId) => {
       const angle = (Number(shadow.angle ?? 33) * Math.PI) / 180
       const steps = Math.max(1, Math.min(30, Number(shadow.steps ?? 20)))
       const stepScale = Math.max(1, Number(shadow.stepScale ?? 1.3))
@@ -200,11 +187,10 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       shadowContext.drawImage(engine.shadowMaskCanvas, 0, 0)
       shadowContext.restore()
       compositeContext.save()
-      compositeContext.globalAlpha = shadow.opacity / 100 * (opacityByColor.get(packedColor) ?? 1)
+      compositeContext.globalAlpha = shadow.opacity / 100 * engine.materialState.materials[materialId].opacity / 100
       compositeContext.drawImage(engine.shadowLayerCanvas, 0, 0)
       compositeContext.restore()
     })
-    fillContext.putImageData(engine.displayFill, 0, 0)
 
     const lineContext = engine.lineCanvas.getContext('2d')
     const lineImage = lineContext.createImageData(canvas.width, canvas.height)
@@ -301,8 +287,11 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       fillCanvas.height = lineCanvas.height = hoverCanvas.height = line.height
       engineRef.current = {
         ...line, fill, displayFill, history: [], fillCanvas, lineCanvas, hoverCanvas, hoverBounds: null,
+        materialState: !resetTimeline && previous.materialState && previous.width === line.width && previous.height === line.height
+          ? previous.materialState : createMaterialState(line.width * line.height),
         layerCounts: new Map(), layerOrder: [],
       }
+      selectRegion(null)
       canvasRef.current.width = line.width
       canvasRef.current.height = line.height
       onCanvasSize({ width: line.width, height: line.height })
@@ -379,6 +368,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       mask: snapshot.mask,
       lineAlpha: snapshot.lineAlpha,
       fill: new ImageData(new Uint8ClampedArray(snapshot.fillData), snapshot.width, snapshot.height),
+      materialState: cloneMaterialState(snapshot.materialState),
       displayFill: new ImageData(snapshot.width, snapshot.height),
       width: snapshot.width,
       height: snapshot.height,
@@ -394,6 +384,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     canvasRef.current.width = snapshot.width
     canvasRef.current.height = snapshot.height
     timeline.index = index
+    selectRegion(null)
     onRegions(snapshot.regions)
     onCanvasSize({ width: snapshot.width, height: snapshot.height })
     emitLayers()
@@ -404,6 +395,41 @@ const EditorCanvas = forwardRef(function EditorCanvas(
 
   useImperativeHandle(ref, () => ({
     recognize: rebuild,
+    clearSelection() { selectRegion(null); clearHover() },
+    updateMaterial(id, patch, { scope = 'material', seed = selectionRef.current?.seed } = {}) {
+      const engine = engineRef.current
+      if (busy || !engine.materialState?.materials[id]) return false
+      let pixels
+      if (scope === 'region') {
+        if (seed == null) return false
+        const result = findClosedRegion({ x: seed % engine.width, y: Math.floor(seed / engine.width), ...engine })
+        if (result.status !== 'closed') return false
+        pixels = result.pixels
+      }
+      const target = editMaterial(engine.materialState, id, patch, pixels)
+      refreshLayerCounts()
+      if (selectionRef.current) selectRegion(selectionRef.current.seed)
+      render()
+      recordHistory(`调整材质 · ${materialName(engine.materialState.materials[target])}`)
+      return true
+    },
+    removeTexture(id, options) {
+      return ref.current.updateMaterial(id, { type: 'solid', name: '纯色' }, options)
+    },
+    deleteMaterial(id, { scope = 'material', seed = selectionRef.current?.seed } = {}) {
+      const engine = engineRef.current
+      if (busy || !engine.materialState?.materials[id]) return false
+      let pixels
+      if (scope === 'region') {
+        if (seed == null) return false
+        const region = findClosedRegion({ x: seed % engine.width, y: Math.floor(seed / engine.width), ...engine })
+        if (region.status !== 'closed') return false
+        pixels = region.pixels
+      }
+      deleteMaterial(engine.materialState, id, pixels)
+      refreshLayerCounts(); selectRegion(null); render(); recordHistory('删除材质填充')
+      return true
+    },
     rotate(clockwise = true) {
       const engine = engineRef.current
       if (busy || !engine.fill || !sourceRef.current) return false
@@ -445,6 +471,8 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       const engine = engineRef.current
       if (!engine.fill) return
       engine.fill.data.fill(0)
+      engine.materialState = createMaterialState(engine.width * engine.height)
+      selectRegion(null)
       engine.history = []
       engine.layerCounts = new Map()
       engine.layerOrder = []
@@ -571,33 +599,33 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   const handleCanvasClick = (event) => {
     if (busy || !engineRef.current.fill) { onMessage('正在处理线稿，请稍后再填色'); return }
     if (tool === 'crop') return
-    if (tool !== 'bucket') {
-      onMessage('请切换到油漆桶进行填色')
-      return
-    }
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
     const x = Math.max(0, Math.min(canvas.width - 1, Math.floor((event.clientX - rect.left) * canvas.width / rect.width)))
     const y = Math.max(0, Math.min(canvas.height - 1, Math.floor((event.clientY - rect.top) * canvas.height / rect.height)))
     const engine = engineRef.current
     clearHover()
-    const result = fillClosedRegion({ x, y, mask: engine.mask, fillData: engine.fill.data, width: engine.width, height: engine.height, color: fillColor })
+    if (tool === 'select') {
+      const region = findClosedRegion({ x, y, ...engine })
+      if (region.status === 'closed') { selectRegion(y * engine.width + x); paintHover(region.pixels); onMessage('已选中区域 · 在右侧调整材质') }
+      else { selectRegion(null); onMessage(region.status === 'line' ? '点到线稿了，请点击区域内部' : '请选择围合区域') }
+      return
+    }
+    const result = paintRegion(engine.materialState, { x, y, ...engine, material: activeMaterial || { color: fillColor } })
     if (result.status === 'filled') {
-      result.newColor = fillColor.toUpperCase()
       refreshLayerCounts()
+      selectRegion(y * engine.width + x)
       render()
-      recordHistory(`填充颜色 ${result.newColor}`)
-      onMessage(fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
-        ? '填色已保存，但该颜色图层不可见，请在「填充颜色」中点击显示图层'
-        : `已填充 ${fillColor} · 可撤销或继续选择其他颜色`)
+      const material = engine.materialState.materials[result.id]
+      recordHistory(`填充 · ${materialName(material)}`)
+      onMessage(!material.visible || material.opacity === 0 ? '填充已保存，但材质图层不可见；请在图层中显示或调高透明度' : `已填充 ${materialName(material)} · 可撤销`)
     } else if (result.status === 'open') {
       onMessage('该区域连通画布边缘：请在「识别区域」增大防漏值，再点重新识别')
     } else if (result.status === 'line') {
       onMessage('点到线稿了，请点击线条内部')
     } else if (result.status === 'same') {
-      onMessage(fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
-        ? '这里已填过该颜色，但图层不可见；请在「填充颜色」中点击显示图层'
-        : '这个区域已经是当前颜色，请选择另一种颜色替换')
+      selectRegion(y * engine.width + x)
+      onMessage('这里已是当前材质 · 可在右侧调整属性，或选择另一种材质替换')
     } else {
       onMessage('当前颜色或画布尚未准备好，请重新选色后再试')
     }
