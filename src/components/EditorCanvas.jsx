@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { analyzeRegions, countClosedRegions, createLineMask, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
-import { createMaterialState, cloneMaterialState, paintRegion, editMaterial, deleteMaterial, materialName } from '../lib/materials'
+import { createMaterialState, cloneMaterialState, paintRegion, editMaterial, deleteMaterial, materialName, normalizeMaterial, encodeAssignments, decodeAssignments, migrateLegacyFill, transformMaterials, materialBasePixels } from '../lib/materials'
 import { renderMaterialFill } from '../lib/materialPatterns'
 import { drawArtworkLayers } from '../lib/compositeLayers'
 import { rotatePlane } from '../lib/rotatePlane'
@@ -439,6 +439,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       const width = engine.height
       const height = engine.width
       const rotate = (data, channels = 1) => rotatePlane(data, engine.width, engine.height, channels, clockwise)
+      const materialState = cloneMaterialState(engine.materialState)
+      materialState.assignments = rotate(materialState.assignments)
+      transformMaterials(materialState, clockwise ? [0, 1, -1, 0, engine.height, 0] : [0, -1, 1, 0, 0, engine.width])
       const sourceData = sourceRef.current.getContext('2d').getImageData(0, 0, engine.width, engine.height)
       const rotatedSource = document.createElement('canvas')
       rotatedSource.width = width
@@ -450,13 +453,14 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       for (const canvas of [fillCanvas, lineCanvas, hoverCanvas]) { canvas.width = width; canvas.height = height }
       sourceRef.current = rotatedSource
       engineRef.current = {
-        ...engine, width, height, mask: rotate(engine.mask), lineAlpha: rotate(engine.lineAlpha),
+        ...engine, width, height, materialState, mask: rotate(engine.mask), lineAlpha: rotate(engine.lineAlpha),
         fill: new ImageData(rotate(engine.fill.data, 4), width, height), displayFill: new ImageData(width, height),
         fillCanvas, lineCanvas, hoverCanvas, hoverBounds: null, history: [],
       }
       canvasRef.current.width = width
       canvasRef.current.height = height
       onCanvasSize({ width, height })
+      selectRegion(null)
       render()
       recordHistory(clockwise ? '向右旋转 90°' : '向左旋转 90°')
       return true
@@ -481,22 +485,8 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       recordHistory('清空全部填色')
     },
     deleteLayer(color) {
-      const engine = engineRef.current
-      const rgb = hexToRgb(color)
-      let removed = false
-      for (let offset = 0; offset < engine.fill.data.length; offset += 4) {
-        if (engine.fill.data[offset] === rgb.r && engine.fill.data[offset + 1] === rgb.g && engine.fill.data[offset + 2] === rgb.b && engine.fill.data[offset + 3]) {
-          engine.fill.data.fill(0, offset, offset + 4)
-          removed = true
-        }
-      }
-      if (!removed) return false
-      engine.layerCounts.set(color, 0)
-      engine.history = []
-      emitLayers()
-      render()
-      recordHistory(`删除颜色图层 ${color}`)
-      return true
+      const id = Object.keys(engineRef.current.materialState.materials).find(id => engineRef.current.materialState.materials[id].color === color)
+      return id ? ref.current.deleteMaterial(id) : false
     },
     exportPng({ scale = 1, transparent = false } = {}) {
       clearHover()
@@ -536,7 +526,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       const rawFillCanvas = document.createElement('canvas')
       rawFillCanvas.width = engine.width
       rawFillCanvas.height = engine.height
-      rawFillCanvas.getContext('2d').putImageData(engine.fill, 0, 0)
+      rawFillCanvas.getContext('2d').putImageData(new ImageData(materialBasePixels(engine.materialState), engine.width, engine.height), 0, 0)
       return {
         width: engine.width,
         height: engine.height,
@@ -544,10 +534,12 @@ const EditorCanvas = forwardRef(function EditorCanvas(
         fill: rawFillCanvas.toDataURL('image/png'),
         layerCounts: Array.from(engine.layerCounts.entries()),
         layerOrder: [...engine.layerOrder],
+        materialState: { materials: structuredClone(engine.materialState.materials), nextId: engine.materialState.nextId, assignments: encodeAssignments(engine.materialState.assignments) },
       }
     },
     async importProjectData(project, recognition = {}) {
       if (!project?.source || !project?.fill) return false
+      if (!Number.isSafeInteger(project.width) || !Number.isSafeInteger(project.height) || project.width < 1 || project.height < 1 || project.width * project.height > 20_000_000) throw new Error('画布尺寸无效')
       clearHover()
       onBusy(true)
       const [sourceImage, fillImage] = await Promise.all([loadDataImage(project.source), loadDataImage(project.fill)])
@@ -565,9 +557,23 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       const fillContext = fillCanvas.getContext('2d')
       fillContext.drawImage(fillImage, 0, 0, project.width, project.height)
       const fill = fillContext.getImageData(0, 0, project.width, project.height)
+      let materialState
+      let unknownMaterial = false
+      if (project.materialState) {
+        const assignments = decodeAssignments(project.materialState.assignments, project.width * project.height)
+        const materials = {}
+        for (const [id, value] of Object.entries(project.materialState.materials || {})) {
+          if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0 || Number(id) > 4294967295) throw new Error('材质编号无效')
+          materials[id] = normalizeMaterial(value)
+          if (value.type !== materials[id].type) unknownMaterial = true
+        }
+        if (assignments.some(id => id !== 0 && !materials[id])) throw new Error('材质引用缺失')
+        materialState = { assignments, materials, nextId: Math.max(0, ...Object.keys(materials).map(Number)) + 1 }
+      } else materialState = migrateLegacyFill(fill.data, recognition)
       const regions = countClosedRegions(line.mask, project.width, project.height)
       engineRef.current = {
         ...line,
+        materialState,
         fill,
         displayFill: new ImageData(project.width, project.height),
         history: [],
@@ -584,9 +590,11 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       onCanvasSize({ width: project.width, height: project.height })
       onRegions(regions)
       refreshLayerCounts()
+      selectRegion(null)
       render()
       onBusy(false)
       recordHistory('打开项目文件', true)
+      if (unknownMaterial) onMessage('部分材质类型不支持，已保留底色作为纯色填充')
       return true
     },
     restoreHistory(id) {
@@ -729,6 +737,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     const fillData = cropPlane(engine.fill.data, 4)
     const fill = new ImageData(new Uint8ClampedArray(fillData), width, height)
     const displayFill = new ImageData(width, height)
+    const materialState = cloneMaterialState(engine.materialState)
+    materialState.assignments = cropPlane(materialState.assignments)
+    transformMaterials(materialState, [1, 0, 0, 1, -x, -y])
     const fillCanvas = document.createElement('canvas')
     const lineCanvas = document.createElement('canvas')
     const hoverCanvas = document.createElement('canvas')
@@ -736,7 +747,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     fillCanvas.height = lineCanvas.height = hoverCanvas.height = height
 
     engineRef.current = {
-      ...engine, mask, lineAlpha, fill, displayFill, width, height, fillCanvas, lineCanvas, hoverCanvas, hoverBounds: null, history: [],
+      ...engine, materialState, mask, lineAlpha, fill, displayFill, width, height, fillCanvas, lineCanvas, hoverCanvas, hoverBounds: null, history: [],
     }
     canvasRef.current.width = width
     canvasRef.current.height = height
@@ -744,6 +755,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     engineRef.current.regions = regions
     onRegions(regions)
     onCanvasSize({ width, height })
+    selectRegion(null)
     clearHover()
     refreshLayerCounts()
     render()

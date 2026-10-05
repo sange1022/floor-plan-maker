@@ -205,7 +205,7 @@ export default function App() {
     const editor = editorRef.current?.exportProjectData()
     if (!editor) return
     const project = {
-      version: 1,
+      version: 2,
       savedAt: new Date().toISOString(),
       documentName,
       editor,
@@ -230,7 +230,7 @@ export default function App() {
     setBusy(true)
     try {
       const project = JSON.parse(await file.text())
-      if (project.version !== 1 || !project.editor) throw new Error('Unsupported project')
+      if (![1, 2].includes(project.version) || !project.editor) throw new Error('Unsupported project')
       const settings = project.settings || {}
       const restoredBackground = project.background?.data ? await loadImage(project.background.data) : null
       setDocumentName(project.documentName || file.name.replace(/\.weicolor$/i, ''))
@@ -251,6 +251,7 @@ export default function App() {
       setFillLayerVisibility(settings.fillLayerVisibility || {})
       setFillLayerShadows(settings.fillLayerShadows || {})
       await editorRef.current?.importProjectData(project.editor, {
+        ...settings,
         sensitivity: settings.sensitivity ?? 54,
         gapSize: settings.gapSize ?? 1,
       })

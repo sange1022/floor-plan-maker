@@ -72,3 +72,61 @@ export function deleteMaterial(state, id, pixels) {
   else { for (let i = 0; i < state.assignments.length; i++) if (state.assignments[i] === Number(id)) state.assignments[i] = 0 }
   return true
 }
+
+export function encodeAssignments(data) {
+  const runs = []
+  for (let i = 0; i < data.length; i++) {
+    const last = runs[runs.length - 1]
+    if (last && last[0] === data[i]) last[1]++
+    else runs.push([data[i], 1])
+  }
+  return runs
+}
+export function decodeAssignments(runs, count) {
+  if (!Array.isArray(runs) || !Number.isSafeInteger(count) || count <= 0 || count > 20_000_000) throw new Error('材质像素数据无效')
+  const result = new Uint32Array(count)
+  let offset = 0
+  for (const run of runs) {
+    if (!Array.isArray(run) || run.length !== 2) throw new Error('材质数据损坏')
+    const [id, length] = run
+    if (!Number.isSafeInteger(id) || id < 0 || id > 4294967295 || !Number.isSafeInteger(length) || length <= 0 || offset + length > count) throw new Error('材质数据长度无效')
+    result.fill(id, offset, offset + length); offset += length
+  }
+  if (offset !== count) throw new Error('材质数据不完整')
+  return result
+}
+export function migrateLegacyFill(data, settings = {}) {
+  const state = createMaterialState(data.length / 4)
+  const colors = new Map()
+  for (let pixel = 0; pixel < state.assignments.length; pixel++) {
+    const offset = pixel * 4
+    if (!data[offset + 3]) continue
+    const packed = data[offset] * 65536 + data[offset + 1] * 256 + data[offset + 2]
+    if (!colors.has(packed)) {
+      const color = `#${packed.toString(16).padStart(6, '0').toUpperCase()}`
+      const id = state.nextId++
+      state.materials[id] = normalizeMaterial({ color, opacity: settings.fillLayerOpacities?.[color] ?? 100, visible: settings.fillLayerVisibility?.[color] !== false, shadow: settings.fillLayerShadows?.[color] })
+      colors.set(packed, id)
+    }
+    state.assignments[pixel] = colors.get(packed)
+  }
+  return state
+}
+export function transformMaterials(state, matrix) {
+  const [a, b, c, d, e, f] = matrix
+  for (const material of Object.values(state.materials)) {
+    const [u, v, w, x, y, z] = material.transform
+    material.transform = [a*u+c*v, b*u+d*v, a*w+c*x, b*w+d*x, a*y+c*z+e, b*y+d*z+f].map(value => value === 0 ? 0 : value)
+  }
+}
+export function materialBasePixels(state) {
+  const data = new Uint8ClampedArray(state.assignments.length * 4)
+  const colors = new Map(Object.entries(state.materials).map(([id, material]) => [Number(id), Number.parseInt(material.color.slice(1), 16)]))
+  for (let pixel = 0; pixel < state.assignments.length; pixel++) {
+    const id = state.assignments[pixel]
+    if (!id) continue
+    const color = colors.get(id), offset = pixel * 4
+    data[offset] = color >> 16; data[offset+1] = (color >> 8) & 255; data[offset+2] = color & 255; data[offset+3] = 255
+  }
+  return data
+}

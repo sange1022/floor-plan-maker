@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MATERIAL_PRESETS, normalizeMaterial, createMaterialState, assignMaterial, paintRegion, editMaterial, deleteMaterial } from '../src/lib/materials.js'
+import { MATERIAL_PRESETS, normalizeMaterial, createMaterialState, assignMaterial, paintRegion, editMaterial, deleteMaterial, cloneMaterialState, encodeAssignments, decodeAssignments, migrateLegacyFill, transformMaterials } from '../src/lib/materials.js'
+import { rotatePlane } from '../src/lib/rotatePlane.js'
 
 test('presetCatalog: each architectural preset can create a distinct material', () => {
   const state = createMaterialState(8)
@@ -76,4 +77,46 @@ test('sameColorDifferentMaterial: equal base colors do not merge unrelated textu
   assert.notEqual(a, b)
   assert.equal(c, a)
   assert.deepEqual([...state.assignments], [a, b, a])
+})
+
+test('projectRoundTrip: assignment runs preserve empty pixels and arbitrary IDs', () => {
+  const data=new Uint32Array([0,0,12,12,12,0,300,300])
+  assert.deepEqual(encodeAssignments(data),[[0,2],[12,3],[0,1],[300,2]])
+  assert.deepEqual(decodeAssignments(JSON.parse(JSON.stringify(encodeAssignments(data))),8),data)
+})
+test('invalidAssignmentData: corrupt runs cannot overflow or silently truncate', () => {
+  for(const runs of [[[1,9]],[[1,-1]],[[1,1.2]],[[1,NaN]],[[0,2]],[[4294967296,8]]])assert.throws(()=>decodeAssignments(runs,8))
+})
+test('legacyHiddenLayers: opening old RGBA preserves visibility opacity and shadow', () => {
+  const state=migrateLegacyFill(new Uint8ClampedArray([170,187,204,255,170,187,204,255,0,0,0,0]),{fillLayerVisibility:{'#AABBCC':false},fillLayerOpacities:{'#AABBCC':32},fillLayerShadows:{'#AABBCC':{angle:33}}})
+  assert.deepEqual([...state.assignments],[1,1,0])
+  assert.equal(state.materials[1].visible,false)
+  assert.equal(state.materials[1].opacity,32)
+  assert.equal(state.materials[1].shadow.angle,33)
+})
+test('undoProperties: cloned history is independent of later parameter edits', () => {
+  const state=createMaterialState(4);assignMaterial(state,[0,1],{type:'brick',shadow:{angle:33}})
+  const snapshot=cloneMaterialState(state)
+  editMaterial(state,1,{angle:90,shadow:{angle:45},visible:false})
+  state.assignments[0]=0
+  assert.equal(snapshot.materials[1].angle,0)
+  assert.equal(snapshot.materials[1].shadow.angle,33)
+  assert.equal(snapshot.materials[1].visible,true)
+  assert.equal(snapshot.assignments[0],1)
+})
+test('fourRotations: material assignment and texture basis return exactly to original', () => {
+  const state=createMaterialState(6);assignMaterial(state,[0,3],{type:'brick'})
+  const before=cloneMaterialState(state)
+  let width=3,height=2
+  for(let i=0;i<4;i++) {
+    state.assignments=rotatePlane(state.assignments,width,height)
+    transformMaterials(state,[0,1,-1,0,height,0])
+    ;[width,height]=[height,width]
+  }
+  assert.deepEqual(state,before)
+})
+test('cropOrigins: cutting 13px left and 8px top preserves texture world coordinates', () => {
+  const state=createMaterialState(1);assignMaterial(state,[0],{type:'wood'})
+  transformMaterials(state,[1,0,0,1,-13,-8])
+  assert.deepEqual(state.materials[1].transform,[1,0,0,1,-13,-8])
 })
