@@ -10,11 +10,11 @@ import FillColorPresets from './components/FillColorPresets'
 import FillShadowSettings, { DEFAULT_FILL_SHADOW } from './components/FillShadowSettings'
 import IconButton from './components/IconButton'
 import InspectorSection from './components/InspectorSection'
-import { normalizeHex } from './lib/canvasEngine'
 import { normalizeMaterial } from './lib/materials'
 import MaterialLibrary from './components/MaterialLibrary'
 import MaterialProperties from './components/MaterialProperties'
 import MaterialLayers from './components/MaterialLayers'
+import MaterialInteraction from './components/MaterialInteraction'
 
 const loadImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -60,7 +60,6 @@ export default function App() {
   const [source, setSource] = useState(null)
   const [documentName, setDocumentName] = useState('花卉线稿_01.png')
   const [tool, setTool] = useState('bucket')
-  const [fillColor, setFillColor] = useState('#E8754F')
   const [activeMaterial, setActiveMaterial] = useState(() => normalizeMaterial({ color: '#E8754F' }))
   const [selection, setSelection] = useState(null)
   const [scope, setScope] = useState('region')
@@ -100,7 +99,6 @@ export default function App() {
   const chooseMaterial = (input) => {
     const value = normalizeMaterial(input)
     setActiveMaterial(value)
-    setFillColor(value.color)
     setTool('bucket')
     setCropRequest(null)
     setLibraryOpen(false)
@@ -239,7 +237,7 @@ export default function App() {
       documentName,
       editor,
       settings: {
-        fillColor, lineColor, lineOpacity, linePosition, sensitivity, gapSize, hoverPreview,
+        fillColor: activeMaterial.color, lineColor, lineOpacity, linePosition, sensitivity, gapSize, hoverPreview,
         backgroundOpacity, activeMaterial,
       },
       background: background ? { name: backgroundName, data: imageToDataUrl(background) } : null,
@@ -272,7 +270,6 @@ export default function App() {
       setPdfDocument(null)
       setPage(1)
       setPageCount(1)
-      setFillColor(normalizeHex(settings.fillColor) || '#E8754F')
       setActiveMaterial(normalizeMaterial(settings.activeMaterial || { color: settings.fillColor }))
       setSelection(null)
       setLineColor(settings.lineColor || '#1A1A1A')
@@ -288,7 +285,7 @@ export default function App() {
 
 
       setTool('bucket')
-      setMessage('项目已打开，可以继续编辑')
+      setMessage(imported.unknownMaterial ? '部分材质类型不支持，已保留底色作为纯色填充' : '项目已打开，可以继续编辑')
     } catch (error) {
       console.error(error)
       setBusy(false)
@@ -390,7 +387,7 @@ export default function App() {
         <aside className="left-panel">
           <nav className="tool-rail" aria-label="绘图工具">
             {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => { setTool(item.id); if (item.id === 'crop') setSettingsPanel('settings') }} />)}
-            <FillColorPresets color={fillColor} onChange={chooseFillColor} />
+            <FillColorPresets color={activeMaterial.color} onChange={chooseFillColor} />
             <button className={`tool-button ${libraryOpen ? 'active' : ''}`} type="button" aria-label="材质库" aria-expanded={libraryOpen} onClick={() => setLibraryOpen(value => !value)}><Layers size={22} strokeWidth={1.7} /><span>材质</span></button>
             <button className="tool-button mobile-properties-trigger" type="button" aria-label="打开属性面板" onClick={() => setMobileInspector(true)}><SlidersHorizontal size={22} /><span>属性</span></button>
           </nav>
@@ -456,6 +453,7 @@ export default function App() {
             <button className="mobile-panel-close" type="button" aria-label="关闭属性面板" onClick={() => setMobileInspector(false)}><X size={16} /></button>
           </div>
           <div className="inspector-body">
+          <MaterialInteraction onStart={mode => editorRef.current?.beginMaterialInteraction(mode)} onEnd={() => editorRef.current?.endMaterialInteraction()}>
           {inspectorTab === 'properties' ? <>
             <MaterialProperties material={shownMaterial} selection={selectedMaterial ? selection : null} scope={scope} onScopeChange={setScope} onChange={editSelectedMaterial}
               onRemoveTexture={() => editSelectedMaterial({ type: 'solid', name: '纯色' })}
@@ -471,6 +469,7 @@ export default function App() {
               onChange={(id, patch) => editorRef.current?.updateMaterial(id, patch)}
               onDelete={id => editorRef.current?.deleteMaterial(id)}
               linePosition={linePosition} onLinePositionChange={setLinePosition} />}
+          </MaterialInteraction>
           </div>
           <div className="inspector-footer"><span>{selectedMaterial ? '修改可撤回 · 材质独立管理' : '先选材质，再点击闭合区域'}</span></div>
         </aside>

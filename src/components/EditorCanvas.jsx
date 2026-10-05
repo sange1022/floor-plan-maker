@@ -53,6 +53,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   const hoverFrameRef = useRef(null)
   const lastHoverSeedRef = useRef(-1)
   const selectionRef = useRef(null)
+  const interactionRef = useRef(null)
   const timelineRef = useRef({ entries: [], index: -1, sequence: 0 })
   const [cropSelection, setCropSelection] = useState(null)
   const engineRef = useRef({
@@ -120,6 +121,12 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     if (timeline.entries.length > maxEntries) timeline.entries.splice(0, timeline.entries.length - maxEntries)
     timeline.index = timeline.entries.length - 1
     emitHistory()
+  }
+
+  const endMaterialInteraction = () => {
+    const interaction = interactionRef.current
+    interactionRef.current = null
+    if (interaction?.changed) recordHistory(interaction.label)
   }
 
   const render = () => {
@@ -271,6 +278,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   const rebuild = (notify = true, resetTimeline = false) => {
     const sourceCanvas = sourceRef.current
     if (!sourceCanvas) return
+    endMaterialInteraction()
     onBusy(true)
     clearHover()
     window.requestAnimationFrame(() => {
@@ -353,6 +361,17 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     if (hoverFrameRef.current) window.clearTimeout(hoverFrameRef.current)
   }, [])
 
+  useEffect(() => {
+    // Finish even when a pointer is released outside its original slider.
+    const finishPointer = () => { if (interactionRef.current?.mode === 'pointer') endMaterialInteraction() }
+    window.addEventListener('pointerup', finishPointer)
+    window.addEventListener('pointercancel', finishPointer)
+    return () => {
+      window.removeEventListener('pointerup', finishPointer)
+      window.removeEventListener('pointercancel', finishPointer)
+    }
+  }, [])
+
   const restoreTimelineIndex = (index) => {
     const timeline = timelineRef.current
     const snapshot = timeline.entries[index]
@@ -395,10 +414,13 @@ const EditorCanvas = forwardRef(function EditorCanvas(
 
   useImperativeHandle(ref, () => ({
     recognize: rebuild,
+    beginMaterialInteraction(mode = 'manual') { if (!interactionRef.current) interactionRef.current = { changed: false, mode } },
+    endMaterialInteraction,
     clearSelection() { selectRegion(null); clearHover() },
     updateMaterial(id, patch, { scope = 'material', seed = selectionRef.current?.seed } = {}) {
       const engine = engineRef.current
       if (busy || !engine.materialState?.materials[id]) return false
+      if (JSON.stringify(normalizeMaterial({ ...engine.materialState.materials[id], ...patch })) === JSON.stringify(engine.materialState.materials[id])) return true
       let pixels
       if (scope === 'region') {
         if (seed == null) return false
@@ -410,13 +432,16 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       refreshLayerCounts()
       if (selectionRef.current) selectRegion(selectionRef.current.seed)
       render()
-      recordHistory(`调整材质 · ${materialName(engine.materialState.materials[target])}`)
+      const label = `调整材质 · ${materialName(engine.materialState.materials[target])}`
+      if (interactionRef.current) Object.assign(interactionRef.current, { changed: true, label })
+      else recordHistory(label)
       return true
     },
     removeTexture(id, options) {
       return ref.current.updateMaterial(id, { type: 'solid', name: '纯色' }, options)
     },
     deleteMaterial(id, { scope = 'material', seed = selectionRef.current?.seed } = {}) {
+      endMaterialInteraction()
       const engine = engineRef.current
       if (busy || !engine.materialState?.materials[id]) return false
       let pixels
@@ -431,6 +456,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       return true
     },
     rotate(clockwise = true) {
+      endMaterialInteraction()
       const engine = engineRef.current
       if (busy || !engine.fill || !sourceRef.current) return false
       clearHover()
@@ -466,12 +492,15 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       return true
     },
     undo() {
+      endMaterialInteraction()
       return restoreTimelineIndex(timelineRef.current.index - 1)
     },
     redo() {
+      endMaterialInteraction()
       return restoreTimelineIndex(timelineRef.current.index + 1)
     },
     clearFills() {
+      endMaterialInteraction()
       const engine = engineRef.current
       if (!engine.fill) return
       engine.fill.data.fill(0)
@@ -489,6 +518,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       return id ? ref.current.deleteMaterial(id) : false
     },
     exportPng({ scale = 1, transparent = false } = {}) {
+      endMaterialInteraction()
       clearHover()
       render()
       const engine = engineRef.current
@@ -521,6 +551,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       return output.toDataURL('image/png')
     },
     exportProjectData() {
+      endMaterialInteraction()
       const engine = engineRef.current
       if (!engine.fill || !sourceRef.current) return null
       const rawFillCanvas = document.createElement('canvas')
@@ -538,6 +569,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       }
     },
     async importProjectData(project, recognition = {}) {
+      endMaterialInteraction()
       if (!project?.source || !project?.fill) return false
       if (!Number.isSafeInteger(project.width) || !Number.isSafeInteger(project.height) || project.width < 1 || project.height < 1 || project.width * project.height > 20_000_000) throw new Error('画布尺寸无效')
       clearHover()
@@ -567,7 +599,9 @@ const EditorCanvas = forwardRef(function EditorCanvas(
           if (value.type !== materials[id].type) unknownMaterial = true
         }
         if (assignments.some(id => id !== 0 && !materials[id])) throw new Error('材质引用缺失')
-        materialState = { assignments, materials, nextId: Math.max(0, ...Object.keys(materials).map(Number)) + 1 }
+        let maxId = 0
+        for (const id of Object.keys(materials)) maxId = Math.max(maxId, Number(id))
+        materialState = { assignments, materials, nextId: maxId + 1 }
       } else materialState = migrateLegacyFill(fill.data, recognition)
       const regions = countClosedRegions(line.mask, project.width, project.height)
       // Commit only after all images and material references validate. A bad
@@ -583,8 +617,10 @@ const EditorCanvas = forwardRef(function EditorCanvas(
         lineCanvas,
         hoverCanvas,
         hoverBounds: null,
-        layerCounts: new Map(project.layerCounts || []),
-        layerOrder: project.layerOrder || [],
+        // Counts are derived from geometry. Only retain valid order references;
+        // malformed optional metadata must never make the new engine unusable.
+        layerCounts: new Map(),
+        layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.map(String).filter(id => materialState.materials[id]) : [],
         regions,
       }
       canvasRef.current.width = project.width
@@ -597,9 +633,10 @@ const EditorCanvas = forwardRef(function EditorCanvas(
       onBusy(false)
       recordHistory('打开项目文件', true)
       if (unknownMaterial) onMessage('部分材质类型不支持，已保留底色作为纯色填充')
-      return true
+      return { unknownMaterial }
     },
     restoreHistory(id) {
+      endMaterialInteraction()
       const timeline = timelineRef.current
       const index = timeline.entries.findIndex((entry) => entry.id === id)
       return restoreTimelineIndex(index)
@@ -607,6 +644,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   }))
 
   const handleCanvasClick = (event) => {
+    endMaterialInteraction()
     if (busy || !engineRef.current.fill) { onMessage('正在处理线稿，请稍后再填色'); return }
     if (tool === 'crop') return
     const canvas = canvasRef.current
@@ -708,6 +746,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
   }
 
   const applyCrop = () => {
+    endMaterialInteraction()
     if (!cropSelection || cropSelection.width < 12 || cropSelection.height < 12) {
       onMessage('裁剪范围太小，请重新拖动选择')
       return
