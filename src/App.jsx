@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Crop, Download, Eye, EyeOff, FileText, FolderOpen, History as HistoryIcon,
   LocateFixed, MousePointer2, PaintBucket, Redo2, RotateCcw, RotateCw, Save, ScanLine, Trash2,
-  Undo2, Upload, ZoomIn, ZoomOut,
+  Undo2, Upload, ZoomIn, ZoomOut, Layers, Settings2, X, SlidersHorizontal,
 } from 'lucide-react'
 import EditorCanvas from './components/EditorCanvas'
 import AppearanceSettings from './components/AppearanceSettings'
 import FillColorPresets from './components/FillColorPresets'
-import FillColorInput from './components/FillColorInput'
 import FillShadowSettings, { DEFAULT_FILL_SHADOW } from './components/FillShadowSettings'
 import IconButton from './components/IconButton'
 import InspectorSection from './components/InspectorSection'
 import { normalizeHex } from './lib/canvasEngine'
+import { normalizeMaterial } from './lib/materials'
+import MaterialLibrary from './components/MaterialLibrary'
+import MaterialProperties from './components/MaterialProperties'
+import MaterialLayers from './components/MaterialLayers'
 
 const loadImage = (url) => new Promise((resolve, reject) => {
   const image = new Image()
@@ -58,6 +61,13 @@ export default function App() {
   const [documentName, setDocumentName] = useState('花卉线稿_01.png')
   const [tool, setTool] = useState('bucket')
   const [fillColor, setFillColor] = useState('#E8754F')
+  const [activeMaterial, setActiveMaterial] = useState(() => normalizeMaterial({ color: '#E8754F' }))
+  const [selection, setSelection] = useState(null)
+  const [scope, setScope] = useState('region')
+  const [inspectorTab, setInspectorTab] = useState('properties')
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [settingsPanel, setSettingsPanel] = useState(null)
+  const [mobileInspector, setMobileInspector] = useState(false)
   const [lineColor, setLineColor] = useState('#1A1A1A')
   const [lineOpacity, setLineOpacity] = useState(100)
   const [linePosition, setLinePosition] = useState('top')
@@ -69,9 +79,6 @@ export default function App() {
   const [backgroundName, setBackgroundName] = useState('')
   const [backgroundOpacity, setBackgroundOpacity] = useState(100)
   const [fillLayers, setFillLayers] = useState([])
-  const [fillLayerOpacities, setFillLayerOpacities] = useState({})
-  const [fillLayerVisibility, setFillLayerVisibility] = useState({})
-  const [fillLayerShadows, setFillLayerShadows] = useState({})
   const [message, setMessage] = useState('正在识别线稿…')
   const [busy, setBusy] = useState(true)
   const [zoom, setZoom] = useState(100)
@@ -90,17 +97,39 @@ export default function App() {
   const editorRef = useRef(null)
   const workspaceRef = useRef(null)
 
-  const chooseFillColor = (color) => {
-    setFillColor(color)
+  const chooseMaterial = (input) => {
+    const value = normalizeMaterial(input)
+    setActiveMaterial(value)
+    setFillColor(value.color)
     setTool('bucket')
     setCropRequest(null)
+    setLibraryOpen(false)
+    setSelection(null)
+    editorRef.current?.clearSelection()
+    setInspectorTab('properties')
   }
-  const selectedLayerInvisible = fillLayerVisibility[fillColor] === false || (fillLayerOpacities[fillColor] ?? 100) === 0
-  const revealSelectedLayer = () => {
-    setFillLayerVisibility((current) => ({ ...current, [fillColor]: true }))
-    if ((fillLayerOpacities[fillColor] ?? 100) === 0) setFillLayerOpacities((current) => ({ ...current, [fillColor]: 100 }))
-    setMessage('当前颜色图层已显示，可以继续填色')
+  const chooseFillColor = color => chooseMaterial({ color })
+  const selectedMaterial = fillLayers.find(layer => layer.id === selection?.materialId)
+  const shownMaterial = selectedMaterial || activeMaterial
+  const editSelectedMaterial = patch => {
+    if (selectedMaterial) editorRef.current?.updateMaterial(selectedMaterial.id, patch, { scope: selection?.seed == null ? 'material' : scope, seed: selection?.seed })
+    else setActiveMaterial(current => normalizeMaterial({ ...current, ...patch }))
   }
+  const selectLayer = layer => {
+    editorRef.current?.clearSelection()
+    setSelection({ materialId: layer.id, seed: null })
+    setScope('material')
+    setInspectorTab('properties')
+    setTool('select')
+    setMobileInspector(true)
+  }
+  useEffect(() => {
+    const close = event => {
+      if (event.key === 'Escape') { setLibraryOpen(false); setSettingsPanel(null); setMobileInspector(false) }
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [])
 
   useEffect(() => {
     loadImage(`${import.meta.env.BASE_URL}assets/sample-line-art.png`).then(setSource)
@@ -134,9 +163,9 @@ export default function App() {
         URL.revokeObjectURL(url)
       }
       setMessage('线稿已导入，正在识别围合区域')
-      setFillLayerShadows({})
-      setFillLayerOpacities({})
-      setFillLayerVisibility({})
+
+
+
       setTool('bucket')
     } catch (error) {
       console.error(error)
@@ -150,9 +179,9 @@ export default function App() {
     if (!pdfDocument || nextPage < 1 || nextPage > pageCount) return
     setBusy(true)
     setPage(nextPage)
-    setFillLayerShadows({})
-    setFillLayerOpacities({})
-    setFillLayerVisibility({})
+
+
+
     setSource(await renderPdfPage(pdfDocument, nextPage))
   }
 
@@ -211,7 +240,7 @@ export default function App() {
       editor,
       settings: {
         fillColor, lineColor, lineOpacity, linePosition, sensitivity, gapSize, hoverPreview,
-        backgroundOpacity, fillLayerOpacities, fillLayerVisibility, fillLayerShadows,
+        backgroundOpacity, activeMaterial,
       },
       background: background ? { name: backgroundName, data: imageToDataUrl(background) } : null,
     }
@@ -238,6 +267,8 @@ export default function App() {
       setPage(1)
       setPageCount(1)
       setFillColor(normalizeHex(settings.fillColor) || '#E8754F')
+      setActiveMaterial(normalizeMaterial(settings.activeMaterial || { color: settings.fillColor }))
+      setSelection(null)
       setLineColor(settings.lineColor || '#1A1A1A')
       setLineOpacity(settings.lineOpacity ?? 100)
       setLinePosition(settings.linePosition === 'bottom' ? 'bottom' : 'top')
@@ -247,9 +278,9 @@ export default function App() {
       setBackground(restoredBackground)
       setBackgroundName(project.background?.name || '')
       setBackgroundOpacity(settings.backgroundOpacity ?? 100)
-      setFillLayerOpacities(settings.fillLayerOpacities || {})
-      setFillLayerVisibility(settings.fillLayerVisibility || {})
-      setFillLayerShadows(settings.fillLayerShadows || {})
+
+
+
       await editorRef.current?.importProjectData(project.editor, {
         ...settings,
         sensitivity: settings.sensitivity ?? 54,
@@ -265,18 +296,9 @@ export default function App() {
     event.target.value = ''
   }
 
-  const deleteFillLayer = (color) => {
-    if (!editorRef.current?.deleteLayer(color)) return
-    setFillLayerOpacities((current) => { const next = { ...current }; delete next[color]; return next })
-    setFillLayerVisibility((current) => { const next = { ...current }; delete next[color]; return next })
-    setFillLayerShadows((current) => { const next = { ...current }; delete next[color]; return next })
-    setMessage(`已删除颜色图层 ${color}`)
-  }
-
   const currentHistoryIndex = historyEntries.findIndex((entry) => entry.id === currentHistoryId)
   const canUndo = currentHistoryIndex > 0
   const canRedo = currentHistoryIndex >= 0 && currentHistoryIndex < historyEntries.length - 1
-  const activeShadowCount = fillLayers.filter((layer) => fillLayerShadows[layer.color]).length
 
   const undo = () => setMessage(editorRef.current?.undo() ? '已撤销上一次修改' : '暂无可撤销操作')
   const redo = () => setMessage(editorRef.current?.redo() ? '已重做下一次修改' : '暂无可重做操作')
@@ -353,10 +375,11 @@ export default function App() {
           <div className="brand" aria-label="平面图制作"><span>平</span><span>面图制作</span></div>
         <div className="document-title"><FileText size={18} strokeWidth={1.7} /><span>{documentName}</span></div>
         <div className="top-actions">
-          <button className="button secondary project-button" type="button" onClick={() => projectInputRef.current?.click()}><FolderOpen size={17} />打开项目</button>
-          <button className="button secondary project-button" type="button" onClick={saveProject}><Save size={17} />保存项目</button>
-          <button className="button secondary" type="button" onClick={() => lineInputRef.current?.click()}><Upload size={17} />导入线稿</button>
-          <button className="button primary" type="button" onClick={exportArtwork}><Download size={17} />导出作品</button>
+          <button className="button secondary" type="button" aria-label="画面与画布设置" onClick={() => setSettingsPanel('settings')}><Settings2 size={17} /><span>设置</span></button>
+          <button className="button secondary project-button" aria-label="打开项目" type="button" onClick={() => projectInputRef.current?.click()}><FolderOpen size={17} />打开项目</button>
+          <button className="button secondary project-button" aria-label="保存项目" type="button" onClick={saveProject}><Save size={17} />保存项目</button>
+          <button className="button secondary" aria-label="导入线稿" type="button" onClick={() => lineInputRef.current?.click()}><Upload size={17} />导入线稿</button>
+          <button className="button primary" aria-label="导出作品" type="button" onClick={exportArtwork}><Download size={17} />导出作品</button>
         </div>
         <input ref={lineInputRef} hidden type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={importLineArt} />
         <input ref={projectInputRef} hidden type="file" accept=".weicolor,application/json" onChange={openProject} />
@@ -365,9 +388,12 @@ export default function App() {
       <div className="editor-grid">
         <aside className="left-panel">
           <nav className="tool-rail" aria-label="绘图工具">
-            {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => setTool(item.id)} />)}
+            {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => { setTool(item.id); if (item.id === 'crop') setSettingsPanel('settings') }} />)}
             <FillColorPresets color={fillColor} onChange={chooseFillColor} />
+            <button className={`tool-button ${libraryOpen ? 'active' : ''}`} type="button" aria-label="材质库" aria-expanded={libraryOpen} onClick={() => setLibraryOpen(value => !value)}><Layers size={22} strokeWidth={1.7} /><span>材质</span></button>
+            <button className="tool-button mobile-properties-trigger" type="button" aria-label="打开属性面板" onClick={() => setMobileInspector(true)}><SlidersHorizontal size={22} /><span>属性</span></button>
           </nav>
+          {libraryOpen ? <><button className="flyout-backdrop" type="button" aria-label="关闭材质库浮层" onClick={() => setLibraryOpen(false)} /><MaterialLibrary material={activeMaterial} onChoose={chooseMaterial} onClose={() => setLibraryOpen(false)} /></> : null}
         </aside>
 
         <section className="preview-pane" aria-label="画布预览区">
@@ -375,6 +401,7 @@ export default function App() {
             <div className="canvas-history-controls" aria-label="历史操作">
               <button type="button" onClick={undo} disabled={!canUndo} aria-label="撤销"><Undo2 size={17} /></button>
               <button type="button" onClick={redo} disabled={!canRedo} aria-label="重做"><Redo2 size={17} /></button>
+              <button type="button" onClick={() => setSettingsPanel('history')} aria-label="历史记录"><HistoryIcon size={16} /></button>
             </div>
             <div className="canvas-view-controls">
               <button className="canvas-fit-control canvas-rotate-control" type="button" disabled={busy || !source} onClick={() => rotateCanvas(false)} aria-label="向左旋转90度" title="向左旋转 90°"><RotateCcw size={16} /></button>
@@ -390,7 +417,9 @@ export default function App() {
               ref={editorRef}
               source={source}
               tool={tool}
-              fillColor={fillColor}
+              fillColor={activeMaterial.color}
+              activeMaterial={activeMaterial}
+              onSelectionChange={(next) => { if (next?.seed !== selection?.seed) setScope(next?.seed == null ? 'material' : 'region'); setSelection(next) }}
               busy={busy}
               lineColor={lineColor}
               lineOpacity={lineOpacity}
@@ -400,9 +429,9 @@ export default function App() {
               hoverPreview={hoverPreview}
               background={background}
               backgroundOpacity={backgroundOpacity}
-              fillLayerOpacities={fillLayerOpacities}
-              fillLayerVisibility={fillLayerVisibility}
-              fillLayerShadows={fillLayerShadows}
+
+
+
               zoom={zoom}
               cropRequest={cropRequest}
               onRegions={setRegionCount}
@@ -418,7 +447,39 @@ export default function App() {
           </div>
         </section>
 
-        <aside className="inspector">
+
+        <aside className={`inspector material-inspector ${mobileInspector ? 'mobile-open' : ''}`}>
+          <div className="inspector-tabs" role="tablist" aria-label="右侧面板">
+            <button type="button" role="tab" aria-selected={inspectorTab === 'properties'} onClick={() => setInspectorTab('properties')}>属性</button>
+            <button type="button" role="tab" aria-label="图层" aria-selected={inspectorTab === 'layers'} onClick={() => setInspectorTab('layers')}>图层 <small>{fillLayers.length}</small></button>
+            <button className="mobile-panel-close" type="button" aria-label="关闭属性面板" onClick={() => setMobileInspector(false)}><X size={16} /></button>
+          </div>
+          <div className="inspector-body">
+          {inspectorTab === 'properties' ? <>
+            <MaterialProperties material={shownMaterial} selection={selectedMaterial ? selection : null} scope={scope} onScopeChange={setScope} onChange={editSelectedMaterial}
+              onRemoveTexture={() => editSelectedMaterial({ type: 'solid', name: '纯色' })}
+              onUse={() => chooseMaterial({ ...shownMaterial, visible: true, opacity: 100 })}
+              onDelete={() => editorRef.current?.deleteMaterial(selectedMaterial.id, { scope: selection?.seed == null ? 'material' : scope, seed: selection?.seed })} />
+            {selectedMaterial ? <InspectorSection title="独立阴影" defaultOpen={false}>
+              <FillShadowSettings layers={[selectedMaterial]} shadows={{ [String(selectedMaterial.id)]: selectedMaterial.shadow }}
+                onAdd={() => editSelectedMaterial({ shadow: { ...DEFAULT_FILL_SHADOW } })}
+                onChange={(_, shadow) => editSelectedMaterial({ shadow })}
+                onRemove={() => editSelectedMaterial({ shadow: null })} />
+            </InspectorSection> : null}
+          </> : <MaterialLayers layers={fillLayers} selectedId={selection?.materialId} onSelect={selectLayer}
+              onChange={(id, patch) => editorRef.current?.updateMaterial(id, patch)}
+              onDelete={id => editorRef.current?.deleteMaterial(id)}
+              linePosition={linePosition} onLinePositionChange={setLinePosition} />}
+          </div>
+          <div className="inspector-footer"><span>{selectedMaterial ? '修改可撤回 · 材质独立管理' : '先选材质，再点击闭合区域'}</span></div>
+        </aside>
+      </div>
+
+
+      {settingsPanel ? <div className="settings-backdrop" onClick={() => setSettingsPanel(null)}>
+        <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={settingsPanel === 'history' ? '历史记录面板' : '画面与画布设置面板'} onClick={event => event.stopPropagation()}>
+          <div className="panel-title"><div><strong>{settingsPanel === 'history' ? '历史记录' : '画面与画布设置'}</strong><small>所有修改仍在当前作品中</small></div><button type="button" aria-label="关闭设置面板" onClick={() => setSettingsPanel(null)}><X size={18} /></button></div>
+          <div className={`settings-content ${settingsPanel === 'history' ? 'history-only' : ''}`}>
           <InspectorSection title="画面设置">
             <AppearanceSettings
               background={background}
@@ -434,93 +495,6 @@ export default function App() {
               onLineOpacityChange={setLineOpacity}
             />
           </InspectorSection>
-          <InspectorSection title="填充颜色">
-            <FillColorInput color={fillColor} onChange={chooseFillColor} />
-            {selectedLayerInvisible ? <div className="fill-visibility-notice" role="status">
-              <span>当前颜色图层已隐藏或透明度为 0%，填色后也不可见。</span>
-              <button type="button" onClick={revealSelectedLayer}>显示当前颜色图层</button>
-            </div> : null}
-          </InspectorSection>
-          <InspectorSection title={`填色图层${fillLayers.length ? ` (${fillLayers.length})` : ''}`}>
-            <div className="line-layer-order">
-              <div className="line-layer-heading"><ScanLine size={16} /><strong>线稿图层</strong><small>{linePosition === 'top' ? '位于填色上方' : '位于填色下方'}</small></div>
-              <div className="line-order-buttons" role="group" aria-label="线稿图层顺序">
-                {[{ value: 'top', label: '线稿置顶' }, { value: 'bottom', label: '线稿置底' }].map((item) => (
-                  <button key={item.value} type="button" aria-pressed={linePosition === item.value}
-                    onClick={() => { setLinePosition(item.value); setMessage(`${item.label}，填色和导出按新顺序显示`) }}>{item.label}</button>
-                ))}
-              </div>
-              <p className="line-stack-description">从上到下：{linePosition === 'top' ? '线稿 → 填色与阴影 → 背景' : '填色与阴影 → 线稿 → 背景'}</p>
-            </div>
-            {fillLayers.length ? (
-              <div className="fill-layer-list">
-                {fillLayers.map((layer) => {
-                  const opacity = fillLayerOpacities[layer.color] ?? 100
-                  const visible = fillLayerVisibility[layer.color] !== false
-                  const inputId = `layer-${layer.color.slice(1)}`
-                  return (
-                    <div className="fill-layer" key={layer.color}>
-                      <div className="fill-layer-heading">
-                        <button type="button" className="layer-swatch" style={{ background: layer.color }} aria-label={`使用图层颜色 ${layer.color} 填色`} onClick={() => chooseFillColor(layer.color)} />
-                        <strong>{layer.color}</strong>
-                        <span>{layer.regionCount} 个区域</span>
-                        <button
-                          className={`layer-visibility ${visible ? '' : 'hidden'}`}
-                          type="button"
-                          aria-label={`${visible ? '隐藏' : '显示'}颜色图层 ${layer.color}`}
-                          aria-pressed={!visible}
-                          onClick={() => setFillLayerVisibility((current) => ({ ...current, [layer.color]: !visible }))}
-                        >
-                          {visible ? <Eye size={15} /> : <EyeOff size={15} />}
-                        </button>
-                        <button className="layer-delete" type="button" aria-label={`删除颜色图层 ${layer.color}`} onClick={() => deleteFillLayer(layer.color)}><Trash2 size={14} /></button>
-                      </div>
-                      <div className="field-label">
-                        <label htmlFor={inputId}>图层透明度</label>
-                        <label className="opacity-number"> <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={opacity}
-                          disabled={!visible}
-                          aria-label={`颜色图层 ${layer.color} 透明度`}
-                          onChange={(event) => setFillLayerOpacities((current) => ({
-                            ...current,
-                            [layer.color]: Math.max(0, Math.min(100, Number(event.target.value))),
-                          }))}
-                        /><span>%</span></label>
-                      </div>
-                      <input
-                        id={inputId}
-                        className="slider"
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={opacity}
-                        disabled={!visible}
-                        onChange={(event) => setFillLayerOpacities((current) => ({ ...current, [layer.color]: Number(event.target.value) }))}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            ) : <p className="empty-layer-copy">使用油漆桶填色后，同色区域会自动归入一个图层。</p>}
-          </InspectorSection>
-          <InspectorSection title={`立体阴影${activeShadowCount ? ` (${activeShadowCount})` : ''}`}>
-            <FillShadowSettings
-              layers={fillLayers}
-              shadows={fillLayerShadows}
-              onAdd={(color) => {
-                setFillLayerShadows((current) => ({ ...current, [color]: { ...DEFAULT_FILL_SHADOW } }))
-                setMessage(`已为 ${color} 添加独立阴影`)
-              }}
-              onChange={(color, shadow) => setFillLayerShadows((current) => ({ ...current, [color]: shadow }))}
-              onRemove={(color) => {
-                setFillLayerShadows((current) => { const next = { ...current }; delete next[color]; return next })
-                setMessage(`已移除 ${color} 的阴影，填色保持不变`)
-              }}
-            />
-          </InspectorSection>
           <InspectorSection title="画布设置">
             <div className="canvas-size-row">
               <span>当前画布</span>
@@ -533,7 +507,7 @@ export default function App() {
                   key={item.id}
                   type="button"
                   className={tool === 'crop' && activeRatio === item.id ? 'active' : ''}
-                  onClick={() => startCrop(item.id, item.ratio)}
+                  onClick={() => { startCrop(item.id, item.ratio); setSettingsPanel(null) }}
                 >
                   <span className={`ratio-shape ratio-${item.id.replace(':', '-')}`} />
                   {item.label}
@@ -549,7 +523,7 @@ export default function App() {
                     key={entry.id}
                     type="button"
                     className={entry.id === currentHistoryId ? 'active' : ''}
-                    onClick={() => restoreHistory(entry.id)}
+                    onClick={() => { restoreHistory(entry.id); setSettingsPanel(null) }}
                     aria-pressed={entry.id === currentHistoryId}
                   >
                     <span className="history-icon"><HistoryIcon size={14} /></span>
@@ -580,11 +554,12 @@ export default function App() {
           <InspectorSection title="文档" defaultOpen={false}>
             <div className="row page-row"><span>页面 {page} / {pageCount}</span><div className="stepper"><button type="button" onClick={() => changePage(page - 1)} disabled={page <= 1}><ChevronLeft size={16} /></button><span>{page}</span><button type="button" onClick={() => changePage(page + 1)} disabled={page >= pageCount}><ChevronRight size={16} /></button></div></div>
           </InspectorSection>
-        </aside>
-      </div>
+          </div>
+        </section>
+      </div> : null}
 
       <footer className="statusbar">
-        <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span><span className="active-tool-status">{busy ? '处理中…' : tool === 'bucket' ? `油漆桶 · ${fillColor}` : tool === 'crop' ? '裁剪 · 应用后生效' : '选择 · 选色开始填充'}</span></div>
+        <div className="region-status"><ScanLine size={17} /><span>{regionCount} 个区域</span><span className="active-tool-status">{busy ? '处理中…' : tool === 'bucket' ? `油漆桶 · ${activeMaterial.name}` : tool === 'crop' ? '裁剪 · 应用后生效' : '选择 · 选色开始填充'}</span></div>
         <div className="zoom-controls"><button type="button" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))} aria-label="缩小画布"><ZoomOut size={16} /></button><span>{zoom}%</span><button type="button" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))} aria-label="放大画布"><ZoomIn size={16} /></button></div>
       </footer>
     </main>

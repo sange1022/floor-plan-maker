@@ -18,19 +18,21 @@ const SHADOW_PRESETS = {
 }
 
 export default function FillShadowSettings({ layers, shadows, onAdd, onChange, onRemove }) {
-  if (!layers.length) return <p className="empty-layer-copy">先使用油漆桶填色，再为颜色图层添加独立阴影。</p>
+  if (!layers.length) return <p className="empty-layer-copy">先使用油漆桶填色，再为材质图层添加独立阴影。</p>
 
   return (
     <div className="fill-shadow-panel">
       <p className="shadow-intro"><Box size={14} />多步长阴影：沿角度叠加多层距离与模糊，且不改动填色。</p>
       {layers.map((layer) => {
-        const storedShadow = shadows[layer.color]
+        const key = String(layer.id ?? layer.color)
+        const label = layer.name || layer.color
+        const storedShadow = shadows[key]
         if (!storedShadow) {
           return (
-            <div className="shadow-add-row" key={layer.color}>
+            <div className="shadow-add-row" key={key}>
               <span className="layer-swatch" style={{ background: layer.color }} />
-              <strong>{layer.color}</strong>
-              <button type="button" onClick={() => onAdd(layer.color)} aria-label={`给颜色图层 ${layer.color} 添加阴影`}><Plus size={13} />添加阴影</button>
+              <strong>{label}</strong>
+              <button type="button" onClick={() => onAdd(key)} aria-label={`给材质图层 ${label} 添加阴影`}><Plus size={13} />添加阴影</button>
             </div>
           )
         }
@@ -39,27 +41,27 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
           Object.entries(preset).every(([key, value]) => shadow[key] === value),
         )?.[0] || ''
 
-        const update = (key, value) => onChange(layer.color, { ...shadow, [key]: value })
+        const update = (key, value) => onChange(key, { ...shadow, [key]: value })
         return (
-          <div className="shadow-card" key={layer.color}>
+          <div className="shadow-card" key={key}>
             <div className="shadow-card-heading">
               <span className="layer-swatch" style={{ background: layer.color }} />
-              <strong>{layer.color}</strong>
+              <strong>{label}</strong>
               <small>独立效果</small>
-              <button type="button" onClick={() => onRemove(layer.color)} aria-label={`移除颜色图层 ${layer.color} 的阴影`}><Trash2 size={14} /></button>
+              <button type="button" onClick={() => onRemove(key)} aria-label={`移除材质图层 ${label} 的阴影`}><Trash2 size={14} /></button>
             </div>
             <div className="shadow-color-row">
               <span>阴影颜色</span>
-              <label><input type="color" value={shadow.color} onChange={(event) => update('color', event.target.value.toUpperCase())} aria-label={`颜色图层 ${layer.color} 的阴影颜色`} /><b>{shadow.color}</b></label>
+              <label><input type="color" value={shadow.color} onChange={(event) => update('color', event.target.value.toUpperCase())} aria-label={`材质图层 ${label} 的阴影颜色`} /><b>{shadow.color}</b></label>
             </div>
             <label className="shadow-preset-select">
               <span>快速预设</span>
               <select
-                aria-label={`颜色图层 ${layer.color} 的阴影预设`}
+                aria-label={`材质图层 ${label} 的阴影预设`}
                 value={selectedPreset}
                 onChange={(event) => {
                   const preset = SHADOW_PRESETS[event.target.value]
-                  if (preset) onChange(layer.color, { ...shadow, ...preset })
+                  if (preset) onChange(key, { ...shadow, ...preset })
                 }}
               >
                 <option value="" disabled>自定义参数</option>
@@ -69,24 +71,24 @@ export default function FillShadowSettings({ layers, shadows, onAdd, onChange, o
                 <option value="solid">硬边厚度</option>
               </select>
             </label>
-            <label className="field-label" htmlFor={`shadow-angle-${layer.color.slice(1)}`}>投影角度 <output>{shadow.angle}°</output></label>
-            <input id={`shadow-angle-${layer.color.slice(1)}`} className="slider" type="range" min="-180" max="180" value={shadow.angle} onChange={(event) => update('angle', Number(event.target.value))} />
-            <label className="field-label" htmlFor={`shadow-distance-${layer.color.slice(1)}`}>总距离 <output>{shadow.distance}px</output></label>
-            <input id={`shadow-distance-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="500" value={shadow.distance} onChange={(event) => update('distance', Number(event.target.value))} />
+            <label className="field-label" htmlFor={`shadow-angle-${key}`}>投影角度 <output>{shadow.angle}°</output></label>
+            <input id={`shadow-angle-${key}`} className="slider" type="range" min="-180" max="180" value={shadow.angle} onChange={(event) => update('angle', Number(event.target.value))} />
+            <label className="field-label" htmlFor={`shadow-distance-${key}`}>总距离 <output>{shadow.distance}px</output></label>
+            <input id={`shadow-distance-${key}`} className="slider" type="range" min="0" max="500" value={shadow.distance} onChange={(event) => update('distance', Number(event.target.value))} />
             <div className="shadow-step-grid">
               <label>
                 <span>Steps</span>
-                <input type="number" min="1" max="30" value={shadow.steps} aria-label={`颜色图层 ${layer.color} 的阴影步数`} onChange={(event) => update('steps', Math.max(1, Math.min(30, Number(event.target.value))))} />
+                <input type="number" min="1" max="30" value={shadow.steps} aria-label={`材质图层 ${label} 的阴影步数`} onChange={(event) => update('steps', Math.max(1, Math.min(30, Number(event.target.value))))} />
               </label>
               <label>
                 <span>Step Scale</span>
-                <input type="number" min="1" max="3" step="0.1" value={shadow.stepScale} aria-label={`颜色图层 ${layer.color} 的阴影步距比例`} onChange={(event) => update('stepScale', Math.max(1, Math.min(3, Number(event.target.value))))} />
+                <input type="number" min="1" max="3" step="0.1" value={shadow.stepScale} aria-label={`材质图层 ${label} 的阴影步距比例`} onChange={(event) => update('stepScale', Math.max(1, Math.min(3, Number(event.target.value))))} />
               </label>
             </div>
-            <label className="field-label" htmlFor={`shadow-blur-${layer.color.slice(1)}`}>边缘柔化 <output>{shadow.blur}px</output></label>
-            <input id={`shadow-blur-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="300" value={shadow.blur} onChange={(event) => update('blur', Number(event.target.value))} />
-            <label className="field-label" htmlFor={`shadow-opacity-${layer.color.slice(1)}`}>阴影透明度 <output>{shadow.opacity}%</output></label>
-            <input id={`shadow-opacity-${layer.color.slice(1)}`} className="slider" type="range" min="0" max="80" value={shadow.opacity} onChange={(event) => update('opacity', Number(event.target.value))} />
+            <label className="field-label" htmlFor={`shadow-blur-${key}`}>边缘柔化 <output>{shadow.blur}px</output></label>
+            <input id={`shadow-blur-${key}`} className="slider" type="range" min="0" max="300" value={shadow.blur} onChange={(event) => update('blur', Number(event.target.value))} />
+            <label className="field-label" htmlFor={`shadow-opacity-${key}`}>阴影透明度 <output>{shadow.opacity}%</output></label>
+            <input id={`shadow-opacity-${key}`} className="slider" type="range" min="0" max="80" value={shadow.opacity} onChange={(event) => update('opacity', Number(event.target.value))} />
           </div>
         )
       })}
