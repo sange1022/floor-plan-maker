@@ -10,8 +10,7 @@ import FillColorPresets from './components/FillColorPresets'
 import FillShadowSettings, { DEFAULT_FILL_SHADOW } from './components/FillShadowSettings'
 import IconButton from './components/IconButton'
 import InspectorSection from './components/InspectorSection'
-import { normalizeMaterial } from './lib/materials'
-import MaterialLibrary from './components/MaterialLibrary'
+import { normalizeMaterial, quickFillMaterial } from './lib/materials'
 import MaterialProperties from './components/MaterialProperties'
 import MaterialLayers from './components/MaterialLayers'
 import MaterialInteraction from './components/MaterialInteraction'
@@ -60,11 +59,13 @@ export default function App() {
   const [source, setSource] = useState(null)
   const [documentName, setDocumentName] = useState('花卉线稿_01.png')
   const [tool, setTool] = useState('bucket')
-  const [activeMaterial, setActiveMaterial] = useState(() => normalizeMaterial({ color: '#E8754F' }))
+  const [activeMaterial, setActiveMaterial] = useState(() => normalizeMaterial({ color: '#888888' }))
+  const [autoShadow, setAutoShadow] = useState(true)
+  const [shadowScope, setShadowScope] = useState('color')
+  const [shadowSettingsOpen, setShadowSettingsOpen] = useState(false)
   const [selection, setSelection] = useState(null)
   const [scope, setScope] = useState('region')
   const [inspectorTab, setInspectorTab] = useState('properties')
-  const [libraryOpen, setLibraryOpen] = useState(false)
   const [settingsPanel, setSettingsPanel] = useState(null)
   const [mobileInspector, setMobileInspector] = useState(false)
   const [lineColor, setLineColor] = useState('#1A1A1A')
@@ -101,7 +102,6 @@ export default function App() {
     setActiveMaterial(value)
     setTool('bucket')
     setCropRequest(null)
-    setLibraryOpen(false)
     setSelection(null)
     editorRef.current?.clearSelection()
     setInspectorTab('properties')
@@ -113,6 +113,27 @@ export default function App() {
     if (selectedMaterial) editorRef.current?.updateMaterial(selectedMaterial.id, patch, { scope: selection?.seed == null ? 'material' : scope, seed: selection?.seed })
     else setActiveMaterial(current => normalizeMaterial({ ...current, ...patch }))
   }
+  const quickColor = selectedMaterial?.color || activeMaterial.color
+  const effectiveShadowScope = selectedMaterial ? shadowScope : 'color'
+  const fillMaterial = quickFillMaterial(activeMaterial, autoShadow, fillLayers, DEFAULT_FILL_SHADOW)
+  const sameColorLayers = fillLayers.filter(layer => layer.color === quickColor)
+  const sameColorShadow = sameColorLayers.find(layer => layer.shadow)?.shadow || (activeMaterial.color === quickColor ? activeMaterial.shadow : null) || DEFAULT_FILL_SHADOW
+  const panelShadow = effectiveShadowScope === 'color' && sameColorLayers.length
+    ? sameColorLayers.find(layer => layer.shadow)?.shadow || null
+    : selectedMaterial ? selectedMaterial.shadow : fillMaterial.shadow
+  const colorShadowOn = sameColorLayers.length ? sameColorLayers.every(layer => layer.shadow && layer.shadow.enabled !== false) : autoShadow
+  const editShadow = shadow => {
+    if (effectiveShadowScope === 'color') {
+      editorRef.current?.setColorShadows(quickColor, shadow)
+      if (activeMaterial.color === quickColor) setActiveMaterial(current => normalizeMaterial({ ...current, shadow }))
+    } else editSelectedMaterial({ shadow })
+  }
+  const toggleColorShadow = () => {
+    const shadow = { ...sameColorShadow, enabled: !colorShadowOn }
+    editorRef.current?.setColorShadows(quickColor, shadow)
+    if (activeMaterial.color === quickColor) setActiveMaterial(current => normalizeMaterial({ ...current, shadow }))
+    if (!sameColorLayers.length) setAutoShadow(!colorShadowOn)
+  }
   const selectLayer = layer => {
     editorRef.current?.clearSelection()
     setSelection({ materialId: layer.id, seed: null })
@@ -123,7 +144,7 @@ export default function App() {
   }
   useEffect(() => {
     const close = event => {
-      if (event.key === 'Escape') { setLibraryOpen(false); setSettingsPanel(null); setMobileInspector(false) }
+      if (event.key === 'Escape') { setSettingsPanel(null); setMobileInspector(false) }
     }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
@@ -238,7 +259,7 @@ export default function App() {
       editor,
       settings: {
         fillColor: activeMaterial.color, lineColor, lineOpacity, linePosition, sensitivity, gapSize, hoverPreview,
-        backgroundOpacity, activeMaterial,
+        backgroundOpacity, activeMaterial, autoShadow,
       },
       background: background ? { name: backgroundName, data: imageToDataUrl(background) } : null,
     }
@@ -271,6 +292,7 @@ export default function App() {
       setPage(1)
       setPageCount(1)
       setActiveMaterial(normalizeMaterial(settings.activeMaterial || { color: settings.fillColor }))
+      setAutoShadow(settings.autoShadow !== false)
       setSelection(null)
       setLineColor(settings.lineColor || '#1A1A1A')
       setLineOpacity(settings.lineOpacity ?? 100)
@@ -384,14 +406,19 @@ export default function App() {
       </header>
 
       <div className="editor-grid">
-        <aside className={`left-panel ${libraryOpen ? 'flyout-open' : ''}`}>
+        <aside className="left-panel">
           <nav className="tool-rail" aria-label="绘图工具">
             {tools.map((item) => <IconButton key={item.id} {...item} active={tool === item.id} onClick={() => { setTool(item.id); if (item.id === 'crop') setSettingsPanel('settings') }} />)}
             <FillColorPresets color={activeMaterial.color} onChange={chooseFillColor} />
-            <button className={`tool-button ${libraryOpen ? 'active' : ''}`} type="button" aria-label="材质库" aria-expanded={libraryOpen} onClick={() => setLibraryOpen(value => !value)}><Layers size={22} strokeWidth={1.7} /><span>材质</span></button>
+            <button className={`tool-button hatch-shortcut ${activeMaterial.type === 'hatch' ? 'active' : ''}`} type="button" aria-label="45°剖面线" aria-pressed={activeMaterial.type === 'hatch'} onClick={() => chooseMaterial({ ...activeMaterial, type: activeMaterial.type === 'hatch' ? 'solid' : 'hatch', name: activeMaterial.type === 'hatch' ? '纯色' : '45°剖面线', angle: 0, transform: [1, 0, 0, 1, 0, 0], inkColor: '#333333' })}><span className="hatch-symbol" /><span>剖面线</span></button>
+            <div className="quick-shadow-controls">
+              <label title="新填色自动使用长投影"><input type="checkbox" aria-label="填色自动加阴影" checked={autoShadow} onChange={event => setAutoShadow(event.target.checked)} /><span>自动阴影</span></label>
+              <button type="button" aria-label="同色阴影" title={`切换 ${quickColor} 所有区域的阴影`} aria-pressed={colorShadowOn} onClick={toggleColorShadow}><span>{colorShadowOn ? '●' : '○'}</span> 同色阴影</button>
+              <button type="button" aria-label="全部添加阴影" disabled={busy || !fillLayers.length} onClick={() => editorRef.current?.setColorShadows(null, { ...DEFAULT_FILL_SHADOW })}>全部加阴影</button>
+              <button type="button" aria-label="同色阴影设置" onClick={() => { setShadowSettingsOpen(value => !value); setInspectorTab('properties'); setMobileInspector(true) }}>阴影设置</button>
+            </div>
             <button className="tool-button mobile-properties-trigger" type="button" aria-label="打开属性面板" onClick={() => setMobileInspector(true)}><SlidersHorizontal size={22} /><span>属性</span></button>
           </nav>
-          {libraryOpen ? <><button className="flyout-backdrop" type="button" aria-label="关闭材质库浮层" onClick={() => setLibraryOpen(false)} /><MaterialLibrary material={activeMaterial} onChoose={chooseMaterial} onClose={() => setLibraryOpen(false)} /></> : null}
         </aside>
 
         <section className="preview-pane" aria-label="画布预览区">
@@ -416,7 +443,7 @@ export default function App() {
               source={source}
               tool={tool}
               fillColor={activeMaterial.color}
-              activeMaterial={activeMaterial}
+              activeMaterial={fillMaterial}
               onSelectionChange={(next) => { if (next?.seed !== selection?.seed) setScope(next?.seed == null ? 'material' : 'region'); setSelection(next) }}
               busy={busy}
               lineColor={lineColor}
@@ -459,11 +486,15 @@ export default function App() {
               onRemoveTexture={() => editSelectedMaterial({ type: 'solid', name: '纯色' })}
               onUse={() => chooseMaterial({ ...shownMaterial, visible: true, opacity: 100 })}
               onDelete={() => editorRef.current?.deleteMaterial(selectedMaterial.id, { scope: selection?.seed == null ? 'material' : scope, seed: selection?.seed })} />
-            {selectedMaterial ? <InspectorSection title="独立阴影" defaultOpen={false}>
-              <FillShadowSettings layers={[selectedMaterial]} shadows={{ [String(selectedMaterial.id)]: selectedMaterial.shadow }}
-                onAdd={() => editSelectedMaterial({ shadow: { ...DEFAULT_FILL_SHADOW } })}
-                onChange={(_, shadow) => editSelectedMaterial({ shadow })}
-                onRemove={() => editSelectedMaterial({ shadow: null })} />
+            {shadowSettingsOpen ? <InspectorSection title="阴影设置">
+              <label className="quick-shadow-scope">调整范围<select aria-label="阴影调整范围" value={effectiveShadowScope} onChange={event => setShadowScope(event.target.value)}>
+                <option value="color">所有同色区域（{quickColor}）</option>
+                <option value="region" disabled={!selectedMaterial}>当前区域 / 材质</option>
+              </select></label>
+              <FillShadowSettings layers={[selectedMaterial || { ...activeMaterial, id: 'pending' }]} shadows={{ [String(selectedMaterial?.id || 'pending')]: panelShadow }}
+                onAdd={() => editShadow({ ...DEFAULT_FILL_SHADOW })}
+                onChange={(_, shadow) => editShadow(shadow)}
+                onRemove={() => editShadow(null)} />
             </InspectorSection> : null}
           </> : <MaterialLayers layers={fillLayers} selectedId={selection?.materialId} onSelect={selectLayer}
               onChange={(id, patch) => editorRef.current?.updateMaterial(id, patch)}

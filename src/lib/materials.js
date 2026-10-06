@@ -43,6 +43,28 @@ export function assignMaterial(state, pixels, input) {
 }
 export const materialName = (material) => material.type === 'solid' ? `纯色 ${material.color}` : material.name
 
+export function quickFillMaterial(material, autoShadow, layers, fallback) {
+  const color = normalizeHex(material.color)
+  const existing = layers.find(layer => layer.color === color && layer.shadow)
+  return normalizeMaterial({ ...material, shadow: autoShadow ? existing?.shadow || material.shadow || fallback : null })
+}
+
+// Change live material effects only; keep their IDs, textures and geometry intact.
+export function setColorShadows(state, color, shadow) {
+  const wanted = color == null ? null : normalizeHex(color)
+  if (color != null && !wanted) return 0
+  const live = new Set(state.assignments)
+  let changed = 0
+  for (const id of live) {
+    const material = state.materials[id]
+    if (!material || (wanted && material.color !== wanted)) continue
+    if (JSON.stringify(material.shadow) === JSON.stringify(shadow)) continue
+    material.shadow = shadow ? { ...shadow } : null
+    changed++
+  }
+  return changed
+}
+
 export function paintRegion(state, { x, y, mask, width, height, material }) {
   const result = findClosedRegion({ x, y, mask, width, height })
   if (result.status !== 'closed') return result

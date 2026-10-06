@@ -15,14 +15,24 @@ export const COLOR_PRESETS = [
 ]
 
 const PRESET_GROUPS = [...new Set(COLOR_PRESETS.map((preset) => preset.group))]
+const GRAYS = [
+  ['黑', '#000000'], ['深灰', '#333333'], ['中深灰', '#555555'], ['中灰', '#888888'],
+  ['中浅灰', '#AAAAAA'], ['浅灰', '#DDDDDD'], ['白', '#FFFFFF'],
+]
 
 export default function FillColorPresets({ color, onChange }) {
-  const [selectedPresetId, setSelectedPresetId] = useState('bauhaus-classic')
+  const [selectedPresetId, setSelectedPresetId] = useState('neutral-gray')
   const [open, setOpen] = useState(false)
   const selectedPreset = COLOR_PRESETS.find((preset) => preset.id === selectedPresetId) || COLOR_PRESETS[0]
 
   return (
     <div className={`palette-rail-control ${open ? 'open' : ''}`}>
+      <div className="quick-gray-swatches" role="group" aria-label="快捷黑白灰">
+        {GRAYS.map(([name, value]) => <button type="button" key={value} style={{ background: value, color: Number.parseInt(value.slice(1, 3), 16) > 150 ? '#303030' : '#fff' }}
+          aria-label={`选择${name} ${value}`} aria-pressed={color.toUpperCase() === value} title={`${name} ${value}`} onClick={() => onChange(value)}>
+          <span>{name}</span>{color.toUpperCase() === value ? <Check size={12} /> : null}
+        </button>)}
+      </div>
       <button
         type="button"
         className="palette-trigger"
@@ -31,7 +41,7 @@ export default function FillColorPresets({ color, onChange }) {
         aria-controls="left-palette-panel"
       >
         <Palette size={22} strokeWidth={1.7} />
-        <span>配色</span>
+        <span>更多配色</span>
         <i style={{ background: color }} aria-hidden="true" />
       </button>
       {open ? (

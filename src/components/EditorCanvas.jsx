@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { analyzeRegions, countClosedRegions, createLineMask, findClosedRegion, hexToRgb } from '../lib/canvasEngine'
-import { createMaterialState, cloneMaterialState, paintRegion, editMaterial, deleteMaterial, materialName, normalizeMaterial, encodeAssignments, decodeAssignments, migrateLegacyFill, transformMaterials, materialBasePixels } from '../lib/materials'
+import { createMaterialState, cloneMaterialState, paintRegion, editMaterial, deleteMaterial, materialName, normalizeMaterial, encodeAssignments, decodeAssignments, migrateLegacyFill, transformMaterials, materialBasePixels, setColorShadows } from '../lib/materials'
 import { renderMaterialFill } from '../lib/materialPatterns'
 import { drawArtworkLayers } from '../lib/compositeLayers'
 import { rotatePlane } from '../lib/rotatePlane'
@@ -150,7 +150,7 @@ const EditorCanvas = forwardRef(function EditorCanvas(
 
     const fillContext = engine.fillCanvas.getContext('2d')
     const materialMasks = renderMaterialFill(fillContext, engine.materialState, canvas.width, canvas.height)
-    const shadowMasks = new Map([...materialMasks].filter(([id]) => engine.materialState.materials[id].shadow)
+    const shadowMasks = new Map([...materialMasks].filter(([id]) => engine.materialState.materials[id].shadow && engine.materialState.materials[id].shadow.enabled !== false)
       .map(([id, image]) => [id, { image, shadow: engine.materialState.materials[id].shadow }]))
     if (!engine.shadowMaskCanvas || engine.shadowMaskCanvas.width !== canvas.width || engine.shadowMaskCanvas.height !== canvas.height) {
       engine.shadowMaskCanvas = document.createElement('canvas')
@@ -417,6 +417,18 @@ const EditorCanvas = forwardRef(function EditorCanvas(
     beginMaterialInteraction(mode = 'manual') { if (!interactionRef.current) interactionRef.current = { changed: false, mode } },
     endMaterialInteraction,
     clearSelection() { selectRegion(null); clearHover() },
+    setColorShadows(color, shadow) {
+      const engine = engineRef.current
+      if (busy || !engine.materialState) return false
+      if (!setColorShadows(engine.materialState, color, shadow)) return false
+      refreshLayerCounts()
+      if (selectionRef.current) selectRegion(selectionRef.current.seed)
+      render()
+      const label = color ? '调整同色阴影' : '全部添加阴影'
+      if (interactionRef.current) Object.assign(interactionRef.current, { changed: true, label })
+      else recordHistory(label)
+      return true
+    },
     updateMaterial(id, patch, { scope = 'material', seed = selectionRef.current?.seed } = {}) {
       const engine = engineRef.current
       if (busy || !engine.materialState?.materials[id]) return false
